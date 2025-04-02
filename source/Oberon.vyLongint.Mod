@@ -51,7 +51,7 @@ CONST idversion* = ' v0r0a2';
 
 TYPE
 	int = SIGNED32;  (* technical convenience, to avoid triplicate code for  intger types  *)
-	index = SIGNED32;
+	index = SIZE;
 
 	(** File storage *)
 
@@ -98,21 +98,21 @@ PROCEDURE WriteFmt* (prefform: SIGNED32;  VAR R: Files.Rider;  count: index;  VA
 BEGIN
 	(*! add implementations for non plain. form ignored so far *)
 	Files.WriteLInt(R, fmtplain);
-	Files.WriteLInt(R, start);
-	Files.WriteLInt(R, count);
+	Files.WriteLInt(R, SIGNED32(start));
+	Files.WriteLInt(R, SIGNED32(count));
 	Write(R, count, x, start);
 	Files.WriteLInt(R, fmtend)
 END WriteFmt;
 
 PROCEDURE ReadFmt* (VAR form: SIGNED32;  VAR R: Files.Rider;  count: index;  VAR x: ARRAY OF int;  start: index);
 
-	VAR stop: SIGNED32;
+	VAR stop,t: SIGNED32;
 
 BEGIN
 	(*! add implementations for non plain. form ignored so far *)
 	Files.ReadLInt(R, form);
-	Files.ReadLInt(R, start);
-	Files.ReadLInt(R, count);
+	Files.ReadLInt(R, t); start := t;
+	Files.ReadLInt(R, t); count := t;
 	Read(R, count, x, start);
 	Files.ReadLInt(R, stop);
 	ASSERT(stop = fmtend, 100)
