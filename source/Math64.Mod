@@ -41,9 +41,9 @@ TYPE
 		u{OFFSET=0}: UIntValue;
 	END;
 
-PROCEDURE Expo*(x: Value): UIntValue;
+PROCEDURE Expo*(x: Value): UNSIGNED32;
 BEGIN
-	RETURN UIntValue(SHR(SYSTEM.VAL(SetValue, x) * ExponentMask, MantissaBits));
+	RETURN UNSIGNED32(SHR(SYSTEM.VAL(SetValue, x) * ExponentMask, MantissaBits));
 END Expo;
 
 PROCEDURE Mantissa*(x: Value): UIntValue;
