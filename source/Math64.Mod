@@ -35,10 +35,10 @@ TYPE
 	IntValue* = SIGNED64;
 	UIntValue* = UNSIGNED64;
 	SetValue* = SET64;
-	ValueRec = RECORD
-		f: Value;
-		bits{OFFSET=0}: SetValue;
-		u{OFFSET=0}: UIntValue;
+	ValueRec* = RECORD
+		f*: Value;
+		bits*{OFFSET=0}: SetValue;
+		u*{OFFSET=0}: UIntValue;
 	END;
 
 PROCEDURE Expo*(x: Value): UNSIGNED32;

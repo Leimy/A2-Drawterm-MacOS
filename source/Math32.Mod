@@ -32,13 +32,13 @@ CONST
 
 TYPE
 	Value* = FLOAT32;
-	IntValue = SIGNED32;
-	UIntValue = UNSIGNED32;
-	SetValue = SET32;
-	ValueRec = RECORD
-		f: Value;
-		bits{OFFSET=0}: SetValue;
-		u{OFFSET=0}: UIntValue;
+	IntValue* = SIGNED32;
+	UIntValue* = UNSIGNED32;
+	SetValue* = SET32;
+	ValueRec* = RECORD
+		f*: Value;
+		bits*{OFFSET=0}: SetValue;
+		u*{OFFSET=0}: UIntValue;
 	END;
 
 PROCEDURE Expo*(x: Value): UIntValue;
