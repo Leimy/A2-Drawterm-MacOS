@@ -29,7 +29,7 @@ TYPE
 	END;
 
 	Char16* = UNSIGNED16;
-	Char32* = SIGNED32; (*! UTF8Strings.Char32*)
+	Char32* = UNSIGNED32; (*! UTF8Strings.Char32*)
 	Position* = SIGNED64; (* position in the stream *)
 
 	(** Any stream output procedure or method. *)

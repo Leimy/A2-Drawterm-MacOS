@@ -10,7 +10,7 @@ CONST
 	CmpLess* = -1; CmpEqual* = 0; CmpGreater* = 1;	 CmpError* = 2; (** results for Compare. *)
 
 TYPE
-	Char32* = SIGNED32; (*!Streams.Char32*)
+	Char32* = UNSIGNED32; (*!Streams.Char32*)
 
 VAR
 	CodeLength-: ARRAY 256 OF CHAR;	(** UTF-8 encoding length table. *)
