@@ -259,7 +259,12 @@ TYPE
 				Strings.IntToStr(processes[i].id, str); SetText(i, 0, str);
 
 				(* CPU - processor number - 1 *)
+				#IF UNIX THEN
+				(* UnixAos does not track the physical CPU running a pthread. *)
+				SetText(i, 1, "-");
+				#ELSE
 				Strings.IntToStr(processes[i].procID, str); SetText(i, 1, str);
+				#END
 
 				(* CPU% - 2 *)
 				Objects.GetCpuCycles(processes[i], cycles, FALSE);

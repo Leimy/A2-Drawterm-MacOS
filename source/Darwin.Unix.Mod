@@ -644,7 +644,7 @@ VAR
 
 	PROCEDURE getnprocs* (): SIGNED32;
 	BEGIN
-		RETURN sysconf( 0x58 ); (*0x57 for number of processors configured, 0x58 for number of processors online *)
+		RETURN sysconf( 58 ); (* _SC_NPROCESSORS_ONLN; macOS defines it as decimal 58 *)
 	END getnprocs;
 
 
