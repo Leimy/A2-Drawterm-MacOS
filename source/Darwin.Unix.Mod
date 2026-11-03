@@ -20,7 +20,11 @@ CONST
 	LittleEndian* = TRUE;   (** byte order of basic types *)
 	LsbIs0* = TRUE;   (** bit order of SET type *)
 
+	#IF AARCH64 THEN
+	PageSize* = 16384;	(* Darwin on Apple Silicon *)
+	#ELSE
 	PageSize* = 4096;	(* least MMU page size *)
+	#END
 
 	stdin* = 0;  stdout* = 1;  stderr* = 2;
 
@@ -156,7 +160,7 @@ TYPE
 	MutexType			= ARRAY 44 OF CHAR;
 	MutexAttributeType	= ARRAY 12 OF CHAR;
 	ConditionType		= ARRAY 28 OF CHAR;
-#ELSIF AMD64 THEN
+#ELSIF AMD64 OR AARCH64 THEN
 	PThreadAttrType		= ARRAY 64 OF CHAR;
 	MutexType			= ARRAY 64 OF CHAR;
 	MutexAttributeType	= ARRAY 16 OF CHAR;
@@ -305,7 +309,7 @@ TYPE
 				gen-		: INTEGER;
 				lspare-	: INTEGER;
 				qspare-	: ARRAY 4 OF INTEGER
-			#ELSIF AMD64 THEN
+			#ELSIF AMD64 OR AARCH64 THEN
 				dev-		: dev_t;
 				mode-	: mode_t;
 				nlink-		: nlink_t;
@@ -336,7 +340,8 @@ TYPE
 			END;
 
 
-	TmPtr* = POINTER TO Tm;
+	(* localtime returns libc-owned storage, not an A2 heap object. *)
+	TmPtr* = POINTER {UNTRACED} TO Tm;
 	Tm* = RECORD
 				sec*, min*, hour*, mday*, mon*, year*, wday*, yday*, isdst*: SIGNED32;
 				gmtoff*, tmzone*: SIGNED32;
@@ -362,11 +367,19 @@ TYPE
 	FdSet* = ARRAY FdSetLen OF SET;
 
 	Dirent* = POINTER TO RECORD
+			#IF AARCH64 THEN
+				(* Darwin arm64 readdir uses the 64-bit inode layout. *)
+				ino-, seekoff-: UNSIGNED64;
+				reclen-, namlen-: UNSIGNED16;
+				typ-: UNSIGNED8;
+				name-: CHAR;
+			#ELSE
 				ino-		: SIGNED32;
 				reclen-	: SIGNED16;
 				typ-		: SIGNED8;
 				namlen-	: SIGNED8;
 				name-	:  (*array of*) CHAR;
+			#END
 			END;
 
 
@@ -441,6 +454,21 @@ TYPE
 				r_cs		: SIGNED64;
 				r_fs		: SIGNED64;
 				r_gs		: SIGNED64
+			#ELSIF AARCH64 THEN
+				(* Darwin mcontext64 contains exception state, thread state, then
+				   the 32-register NEON state. Keep the complete native size because
+				   CopyContext copies this record verbatim. *)
+				faultvaddr	: SIGNED64;
+				esr			: SIGNED32;
+				exception	: SIGNED32;
+					r_x-		: ARRAY 29 OF SIGNED64;
+					r_bp-		: SIGNED64;
+					r_lr-		: SIGNED64;
+				r_sp-		: SIGNED64;
+				r_pc-		: SIGNED64;
+					cpsr-		: SIGNED32;
+				pad			: SIGNED32;
+				neon		: ARRAY 520 OF CHAR
 			#ELSE
 				unimplemented
 			#END
@@ -502,6 +530,7 @@ VAR
 	pthread_attr_setstacksize		: PROCEDURE {C} ( attr: ADDRESS; stackSize: SIZE );
 
 	pthread_mach_thread_np: PROCEDURE {C} ( thr: Thread_t ): MachPort;
+	thread_info: PROCEDURE {C} ( thread: MachPort; flavor: SIGNED32; info, count: ADDRESS ): SIGNED32;
 
 	thread_suspend:	PROCEDURE {C} ( mthr: MachPort );
 	thread_resume:	PROCEDURE {C} ( mthr: MachPort );
@@ -570,6 +599,7 @@ VAR
 	malloc-		: PROCEDURE {C} ( size: SIZE ): ADDRESS;
 	free-			: PROCEDURE {C} ( p: ADDRESS );
 	mprotect-	: PROCEDURE {C} ( p: ADDRESS; len: SIZE; prot: SIGNED32 ): SIGNED32;
+	sys_icache_invalidate-: PROCEDURE {C} ( start: ADDRESS; len: SIZE );
 
 	alarm-		: PROCEDURE {C} ( ms: SIGNED32 ): SIGNED32;
 	setitimer-		: PROCEDURE {C} ( which: SIGNED32;  VAR value, ovalue: Itimerval ): SIGNED32;
@@ -709,6 +739,25 @@ VAR
 	BEGIN
 		RETURN pthread_self( );
 	END ThrThis;
+
+	PROCEDURE GetThreadCpuTime*(thr: Thread_t): SIGNED64;
+	VAR info: RECORD
+		userSeconds, userMicroseconds, systemSeconds, systemMicroseconds: SIGNED32;
+		cpuUsage, policy, runState, flags, suspendCount, sleepTime: SIGNED32
+	END;
+		count: SIGNED32;
+		result, port: SIGNED32;
+	BEGIN
+		IF thr = 0 THEN RETURN -1 END;
+		count := 10; (* THREAD_BASIC_INFO_COUNT: ten 32-bit words *)
+		port := pthread_mach_thread_np(thr);
+		result := thread_info(port, 3, ADDRESSOF(info), ADDRESSOF(count));
+		IF result # 0 THEN
+			RETURN -1
+		END;
+		RETURN (SIGNED64(info.userSeconds) + SIGNED64(info.systemSeconds)) * 1000000 +
+			SIGNED64(info.userMicroseconds) + SIGNED64(info.systemMicroseconds)
+	END GetThreadCpuTime;
 
 	PROCEDURE ThrYield*( );
 	BEGIN
@@ -898,6 +947,15 @@ VAR
 		perror( ADDRESSOF( msg ) )
 	END Perror;
 
+	PROCEDURE GetTimer*(): SIGNED64;
+	VAR tv: Timeval; tz: Timezone;
+	BEGIN
+		IF gettimeofday(tv, tz) = 0 THEN
+			RETURN SIGNED64(tv.sec) * 1000000 + SIGNED64(tv.usec)
+		END;
+		RETURN 0
+	END GetTimer;
+
 	PROCEDURE Dlsym*( lib: ADDRESS;  CONST sym: ARRAY OF CHAR;  objAddr: ADDRESS );
 	VAR val: SIGNED32;
 	BEGIN
@@ -1012,6 +1070,15 @@ VAR
 			suspendHandler( ucp );
 			handler_done := TRUE;
 		ELSIF trap # NIL THEN
+			#IF AARCH64 THEN
+				(* Report the original fault before the high-level trap writer allocates. *)
+				IF sig # SIGTERM THEN
+				Trace.String("native signal "); Trace.Int(sig, 0);
+				Trace.String(" pc="); Trace.Address(ucp.mc.r_pc);
+				Trace.String(" lr="); Trace.Address(ucp.mc.r_lr);
+				Trace.String(" fault="); Trace.Address(ucp.mc.faultvaddr); Trace.Ln
+				END;
+			#END;
 			trap( sig, ucp.mc );
 		ELSE
 			Trace.String( "Unix.SigHandler: sig = " ); Trace.Int( sig, 0 ); Trace.Ln;  exit( -1 );
@@ -1138,6 +1205,7 @@ VAR
 		Dlsym( libp, "pthread_self", ADDRESSOF(pthread_self) );
 
 		Dlsym( libc, "pthread_mach_thread_np", ADDRESSOF( pthread_mach_thread_np ) );
+		Dlsym( libc, "thread_info", ADDRESSOF( thread_info ) );
 		Dlsym( libc, "thread_suspend", ADDRESSOF( thread_suspend ) );
 		Dlsym( libc, "thread_resume", ADDRESSOF( thread_resume ) );
 
@@ -1192,6 +1260,10 @@ VAR
 		Dlsym( libc, "stat64",	ADDRESSOF( stat ) );
 		Dlsym( libc, "lstat64",	ADDRESSOF( lstat ) );
 		Dlsym( libc, "fstat64",	ADDRESSOF( fstat ) );
+#ELSIF AARCH64 THEN
+		Dlsym( libc, "stat",		ADDRESSOF( stat ) );
+		Dlsym( libc, "lstat",	ADDRESSOF( lstat ) );
+		Dlsym( libc, "fstat",	ADDRESSOF( fstat ) );
 #ELSE
 	=== error
 #END
@@ -1226,6 +1298,7 @@ VAR
 		Dlsym( libc, "posix_memalign",	ADDRESSOF( posix_memalign ) );
 		Dlsym( libc, "free",			ADDRESSOF( free ) );
 		Dlsym( libc, "mprotect",	ADDRESSOF( mprotect ) );
+		Dlsym( libc, "sys_icache_invalidate", ADDRESSOF( sys_icache_invalidate ) );
 
 		Dlsym( libc, "system",	ADDRESSOF( system ) );
 		Dlsym( libc, "uname",	ADDRESSOF( uname ) );

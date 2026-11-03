@@ -427,7 +427,7 @@ TYPE StateWindow= OBJECT(WMComponents.FormWindow)
 			END
 		ELSE
 			w.String(mod.name);
-			DEC(pc, ADDRESSOF(mod.code[0]));
+			DEC(pc, Modules.CodeAddress(mod));
 			refs := SYSTEM.VAL(Bytes, mod.refs);
 			IF (refs # NIL) & (LEN(mod.refs) # 0) THEN
 				refpos := FindProc(refs, pc);

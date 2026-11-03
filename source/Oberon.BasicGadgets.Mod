@@ -563,6 +563,12 @@ BEGIN
 	END
 END ButtonAttr;
 
+PROCEDURE IsFrameLook(F: Button): BOOLEAN;
+BEGIN
+	IF F.look = NIL THEN RETURN FALSE END;
+	RETURN F.look IS Gadgets.Frame
+END IsFrameLook;
+
 PROCEDURE RestoreButton(R: Display3.Mask; F: Button; x, y, w, h, u, v, w1, h1: SIGNED16; dlink: Objects.Object);
 VAR D: Display.DisplayMsg; L: Gadgets.Frame; O: Display3.OverlapMsg; A: Objects.AttrMsg; ll, lr, lb, lt: SIGNED16;
 	col: Display.Color;
@@ -577,7 +583,7 @@ BEGIN
 		Display3.ReplConst(R, col, x + 2, y + 2, w - 4, h - 4, Display.replace); (* inside *)
 		IF F.caption # "" THEN
 			Display3.CenterString(R, Display3.textC, x + 3, y + 1, w - 4, h - 4, Fonts.Default, F.caption, Display3.textmode)
-		ELSIF (F.look # NIL) THEN
+		ELSIF IsFrameLook(F) THEN
 			L := F.look(Gadgets.Frame);
 			ll := x + w DIV 2 - L.W DIV 2 + 1; lr := ll + L.W - 1;
 			lb := y + h DIV 2 - L.H DIV 2 - 1; lt := lb + L.H - 1;
@@ -604,7 +610,7 @@ BEGIN
 		Display3.ReplConst(R, col, x + 2, y + 2, w - 4, h - 4, Display.replace); (* inside *)
 		IF F.caption # "" THEN
 			Display3.CenterString(R, Display3.textC, x + 2, y + 2, w - 4, h - 4, Fonts.Default, F.caption, Display3.textmode)
-		ELSIF (F.look # NIL) THEN
+		ELSIF IsFrameLook(F) THEN
 			L := F.look(Gadgets.Frame);
 			ll := x + w DIV 2 - L.W DIV 2; lr := ll + L.W - 1;
 			lb := y + h DIV 2 - L.H DIV 2; lt := lb + L.H - 1;
@@ -643,7 +649,7 @@ BEGIN
 		Printer3.ReplConst(R, F.upC, x + P(2), y + P(2), w - P(4), h - P(4), Display.replace); (* inside *)
 		IF F.caption # "" THEN
 			Printer3.CenterString(R, Display3.textC, x + P(3), y + P(1), w - P(4), h - P(4), Fonts.Default, F.caption, Display3.textmode);
-		ELSIF (F.look # NIL) THEN
+		ELSIF IsFrameLook(F) THEN
 			L := F.look(Gadgets.Frame);
 			O.res := -1; (*O.M := F.inM; *) O.M := F.outM; O.x := 0; O.y := 0; O.dlink := NIL; L.handle(L, O);
 			D.device := Display.printer; D.id := Display.full; D.F := NIL; D.dlink := M.dlink;
@@ -662,7 +668,7 @@ BEGIN
 		Printer3.ReplConst(R, F.upC, x + P(2), y + P(2), w - P(4), h - P(4), Display.replace); (* inside *)
 		IF F.caption # "" THEN
 			Printer3.CenterString(R, Display3.textC, x + P(2), y + P(2), w - P(4), h - P(4), Fonts.Default, F.caption, Display3.textmode);
-		ELSIF (F.look # NIL) THEN
+		ELSIF IsFrameLook(F) THEN
 			L := F.look(Gadgets.Frame);
 			O.res := -1; O.M := F.outM; O.x := 0; O.y := 0; O.dlink := NIL; L.handle(L, O);
 			D.device := Display.printer; D.id := Display.full; D.F := NIL; D.dlink := M.dlink;
@@ -719,7 +725,9 @@ END Constraints;
 PROCEDURE Constrain(F:Button):BOOLEAN;
 VAR l,r,t,b:SIGNED32; lrel,rrel,trel,brel:FLOAT64;
 BEGIN
-	IF (F.look#NIL) &Constraints(F.look(Display.Frame),l,t,r,b,lrel,trel,rrel,brel) THEN (*constraints must be positive*)
+	IF F.look = NIL THEN RETURN FALSE END;
+	IF ~(F.look IS Display.Frame) THEN RETURN FALSE END;
+	IF Constraints(F.look(Display.Frame),l,t,r,b,lrel,trel,rrel,brel) THEN (*constraints must be positive*)
 		IF (l#DontCare) & (r#DontCare) THEN
 			F.look(Display.Frame).W:=SHORT(F.W-l-r);
 			F.look(Display.Frame).X:=SHORT(l);
@@ -874,7 +882,7 @@ BEGIN
 				ELSIF M IS Display3.OverlapMsg THEN
 					WITH M: Display3.OverlapMsg DO
 						Gadgets.framehandle(F, M);
-						IF F.look # NIL THEN
+						IF IsFrameLook(F) THEN
 							f := F.look(Gadgets.Frame);
 							IF F.mask = NIL THEN
 								KillMasks(F.look); F.inM := NIL; F.outM := NIL;

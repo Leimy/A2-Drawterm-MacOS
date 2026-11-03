@@ -545,10 +545,12 @@ VAR
 	img: WMGraphics.Image;
 	win:WMComponents.FormWindow;
 	rowSp,colSp: WMGrids.Spacings;
+	i: SIZE;
 BEGIN
 	g:=WMStringGrids.GenStringGrid()(WMStringGrids.StringGrid);
-	rowSp:=Cast([20,20,20,20,20,20,20,20,20,20]); g.SetRowSpacings(rowSp);
-	colSp:=Cast([20,20,20,20,20,20,20,20,20,20]); g.SetColSpacings(colSp);
+	NEW(rowSp, 10); NEW(colSp, 10);
+	FOR i:=0 TO 9 DO rowSp[i]:=20; colSp[i]:=20 END;
+	g.SetRowSpacings(rowSp); g.SetColSpacings(colSp);
 	g.model.Acquire;
 	g.alignment.Set(WMComponents.AlignClient);
 	g.model.SetNofRows(10);
@@ -576,4 +578,3 @@ ShowGrid.Do ~
 System.FreeDownTo WMInspectionComponents WMStringGrids ShowGrid~
 
 ComponentViewer.Open WMStringGrids.GenStringGrid ~
-

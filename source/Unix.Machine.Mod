@@ -14,7 +14,11 @@ CONST
 	#ELSIF ARM THEN
 		Version = "A2 Gen. ARM, ";
 		DefaultObjectFileExtension* = ".GofA";	
+	#ELSIF AARCH64 THEN
+		Version = "A2 Gen. AArch64, ";
+		DefaultObjectFileExtension* = ".GofAa";
 	#END
+	PageSize* = Unix.PageSize;
 
 	Second* = 1000; (* frequency of ticks increments in Hz *)
 
@@ -136,7 +140,34 @@ VAR
 	 * left empty on Intel architecture.
 	 *)
 	PROCEDURE InvalidateICacheRange * (adr: ADDRESS; len: SIZE);
+	#IF AARCH64 THEN
+	BEGIN
+		Unix.sys_icache_invalidate(adr, len)
+	#END
 	END InvalidateICacheRange;
+
+	(** Publish a completed code range. The loader writes and relocates the
+	 * page-isolated range before this transition to read/execute. *)
+	PROCEDURE PublishCode* (adr: ADDRESS; len: SIZE): BOOLEAN;
+	#IF AARCH64 THEN
+	VAR first, limit: ADDRESS;
+	BEGIN
+		IF len = 0 THEN RETURN TRUE END;
+		FlushDCacheRange(adr, len);
+		InvalidateICacheRange(adr, len);
+		first := adr - adr MOD PageSize;
+		limit := adr + len;
+		INC(limit, (-limit) MOD PageSize);
+		IF Unix.mprotect(first, limit - first, 5 (* READ + EXEC *)) # 0 THEN
+			Unix.Perror("Machine.PublishCode: mprotect");
+			RETURN FALSE
+		END;
+		RETURN TRUE
+	#ELSE
+	BEGIN
+		RETURN TRUE
+	#END
+	END PublishCode;
 
 	(* insert given memory block in sorted list of memory blocks, sort key is startAdr field - called during GC *)
 	PROCEDURE InsertMemoryBlock(memBlock: MemoryBlock);
@@ -208,7 +239,11 @@ VAR
 			endBlockAdr := 0;
 			memoryBlock := NIL;
 		ELSE
-			IF Unix.mprotect( adr, alloc, 7 (* READ WRITE EXEC *) ) # 0 THEN
+			#IF AARCH64 THEN
+				IF Unix.mprotect( adr, alloc, 3 (* READ WRITE *) ) # 0 THEN
+			#ELSE
+				IF Unix.mprotect( adr, alloc, 7 (* READ WRITE EXEC *) ) # 0 THEN
+			#END
 				Unix.Perror( "Machine.ExpandHeap: mprotect" )
 			END;
 			mBlock := adr;
@@ -285,6 +320,15 @@ VAR
 
 
 	(** Fill "size" bytes at "destAdr" with "filler". "size" must be multiple of 4. *)
+	#IF AARCH64 THEN
+	PROCEDURE Fill32* (destAdr: ADDRESS; size: SIZE; filler: SIGNED32);
+	BEGIN
+		ASSERT(destAdr MOD 4 = 0); ASSERT(size MOD 4 = 0);
+		WHILE size > 0 DO
+			S.PUT(destAdr, filler); INC(destAdr, 4); DEC(size, 4)
+		END
+	END Fill32;
+	#ELSE
 	PROCEDURE  Fill32* (destAdr: ADDRESS; size: SIZE; filler: SIGNED32);
 	CODE
 	#IF I386 THEN
@@ -339,6 +383,7 @@ VAR
 		unimplemented
 	#END
 	END Fill32;
+	#END
 
 PROCEDURE  Portin8*(port: SIGNED32; VAR val: CHAR);
 END Portin8;
@@ -361,8 +406,13 @@ END Portout32;
 
 (** -- Atomic operations -- *)
 
-(** Atomic INC(x). *)
-PROCEDURE -AtomicInc*(VAR x: SIGNED32);
+	(** Atomic INC(x). *)
+	#IF AARCH64 THEN
+	PROCEDURE AtomicInc*(VAR x: SIGNED32);
+	VAR old: SIGNED32;
+	BEGIN REPEAT old := x UNTIL CAS(x, old, old + 1) = old END AtomicInc;
+	#ELSE
+	PROCEDURE -AtomicInc*(VAR x: SIGNED32);
 CODE
 #IF I386 THEN
 	POP EAX
@@ -383,10 +433,16 @@ CODE
 #ELSE
 	unimplemented
 #END
-END AtomicInc;
+	END AtomicInc;
+	#END
 
-(** Atomic DEC(x). *)
-PROCEDURE -AtomicDec*(VAR x: SIGNED32);
+	(** Atomic DEC(x). *)
+	#IF AARCH64 THEN
+	PROCEDURE AtomicDec*(VAR x: SIGNED32);
+	VAR old: SIGNED32;
+	BEGIN REPEAT old := x UNTIL CAS(x, old, old - 1) = old END AtomicDec;
+	#ELSE
+	PROCEDURE -AtomicDec*(VAR x: SIGNED32);
 CODE
 #IF I386 THEN
 	POP EAX
@@ -407,10 +463,16 @@ loop:
 #ELSE
 	unimplemented
 #END
-END AtomicDec;
+	END AtomicDec;
+	#END
 
-(** Atomic INC(x, y). *)
-PROCEDURE -AtomicAdd*(VAR x: SIGNED32; y: SIGNED32);
+	(** Atomic INC(x, y). *)
+	#IF AARCH64 THEN
+	PROCEDURE AtomicAdd*(VAR x: SIGNED32; y: SIGNED32);
+	VAR old: SIGNED32;
+	BEGIN REPEAT old := x UNTIL CAS(x, old, old + y) = old END AtomicAdd;
+	#ELSE
+	PROCEDURE -AtomicAdd*(VAR x: SIGNED32; y: SIGNED32);
 CODE
 #IF I386 THEN
 	POP EBX
@@ -435,7 +497,8 @@ loop:
 #ELSE
 	unimplemented
 #END
-END AtomicAdd;
+	END AtomicAdd;
+	#END
 
 
 #IF I386 OR AM64 THEN
@@ -458,8 +521,12 @@ CODE
 END AtomicExcl;
 #END
 
-(** Atomic test-and-set. Set x = TRUE and return old value of x. *)
-PROCEDURE -AtomicTestSet*(VAR x: BOOLEAN): BOOLEAN;
+	(** Atomic test-and-set. Set x = TRUE and return old value of x. *)
+	#IF AARCH64 THEN
+	PROCEDURE AtomicTestSet*(VAR x: BOOLEAN): BOOLEAN;
+	BEGIN RETURN CAS(x, FALSE, TRUE) END AtomicTestSet;
+	#ELSE
+	PROCEDURE -AtomicTestSet*(VAR x: BOOLEAN): BOOLEAN;
 CODE
 #IF I386 THEN
 	POP EBX
@@ -487,10 +554,15 @@ exit:
 #ELSE
 	unimplemented
 #END
-END AtomicTestSet;
+	END AtomicTestSet;
+	#END
 
-(* Atomic compare-and-swap. Set x = new if x = old and return old value of x *)
-PROCEDURE  -AtomicCAS* (VAR x: SIGNED32; old, new: SIGNED32): SIGNED32;
+	(* Atomic compare-and-swap. Set x = new if x = old and return old value of x *)
+	#IF AARCH64 THEN
+	PROCEDURE AtomicCAS*(VAR x: SIGNED32; old, new: SIGNED32): SIGNED32;
+	BEGIN RETURN CAS(x, old, new) END AtomicCAS;
+	#ELSE
+	PROCEDURE  -AtomicCAS* (VAR x: SIGNED32; old, new: SIGNED32): SIGNED32;
 CODE
 #IF I386 THEN
 	POP EBX		; new
@@ -520,10 +592,16 @@ exit:
 #ELSE
 	unimplemented
 #END
-END AtomicCAS;
+	END AtomicCAS;
+	#END
 
-(** This procedure should be called in all spin loops as a hint to the processor (e.g. Pentium 4). *)
-PROCEDURE  -SpinHint*;
+	(** This procedure should be called in all spin loops as a hint to the processor (e.g. Pentium 4). *)
+	#IF AARCH64 THEN
+	PROCEDURE SpinHint*;
+	BEGIN
+	END SpinHint;
+	#ELSE
+	PROCEDURE  -SpinHint*;
 CODE
 #IF I386 THEN
 	PAUSE
@@ -534,10 +612,17 @@ CODE
 #ELSE
 	unimplemented
 #END
-END SpinHint;
+	END SpinHint;
+	#END
 
-(* Return current instruction pointer *)
-PROCEDURE  CurrentPC* (): ADDRESS;
+	(* Return current instruction pointer *)
+	#IF AARCH64 THEN
+	PROCEDURE CurrentPC* (): ADDRESS;
+	CODE
+		AARCH64_CURRENT_PC
+	END CurrentPC;
+	#ELSE
+	PROCEDURE  CurrentPC* (): ADDRESS;
 CODE
 #IF I386 THEN
 	MOV EAX, [EBP+4]
@@ -548,7 +633,8 @@ CODE
 #ELSE
 	unimplemented
 #END
-END CurrentPC;
+	END CurrentPC;
+	#END
 
 #IF I386 THEN
 PROCEDURE -GetTimer* (): SIGNED64;
@@ -563,8 +649,8 @@ CODE
 	SHL RDX, 32
 	OR RAX, RDX
 END GetTimer;
-#ELSIF ARM THEN
-PROCEDURE GetTimer* (): SIGNED64;
+	#ELSIF ARM THEN
+	PROCEDURE GetTimer* (): SIGNED64;
 VAR t: Unix.Timespec;
 BEGIN
 	IF Unix.clock_gettime(Unix.CLOCK_MONOTONIC, ADDRESS OF t) = 0 THEN
@@ -572,7 +658,12 @@ BEGIN
 	ELSE
 		RETURN 0;
 	END;
-END GetTimer;
+	END GetTimer;
+	#ELSIF AARCH64 THEN
+	PROCEDURE GetTimer* (): SIGNED64;
+	BEGIN
+		RETURN Unix.GetTimer()
+	END GetTimer;
 #ELSE
 	unimplemented
 #END
@@ -653,6 +744,17 @@ END GetTimer;
 	END SetNumberOfProcessors;
 
 	(* function for changing byte order *)
+	#IF AARCH64 THEN
+	PROCEDURE ChangeByteOrder* (n: SIGNED32): SIGNED32;
+	TYPE Bytes = ARRAY 4 OF CHAR;
+	VAR source, reversed: Bytes;
+	BEGIN
+		source := S.VAL(Bytes, n);
+		reversed[0] := source[3]; reversed[1] := source[2];
+		reversed[2] := source[1]; reversed[3] := source[0];
+		RETURN S.VAL(SIGNED32, reversed)
+	END ChangeByteOrder;
+	#ELSE
 	PROCEDURE ChangeByteOrder* (n: SIGNED32): SIGNED32;
 	CODE
 	#IF I386 THEN
@@ -671,6 +773,7 @@ END GetTimer;
 		unimplemented
 	#END
 	END ChangeByteOrder;
+	#END
 
 
 	(* Send and print character *)
@@ -932,7 +1035,12 @@ END GetTimer;
 			r := Unix.close( logfile );
 			IF logstat.size = 0 THEN  r := Unix.unlink( ADDRESSOF( logname) )  END;
 		END;
-		IF reboot THEN  Unix.exit( 0 )  ELSE  Unix.exit( 1 )  END;
+		#IF AARCH64 THEN
+			(* Hosted native A2 shutdown is a normal process exit. *)
+			Unix.exit( 0 )
+		#ELSE
+			IF reboot THEN  Unix.exit( 0 )  ELSE  Unix.exit( 1 )  END
+		#END;
 	END Shutdown;
 
 
@@ -1084,4 +1192,3 @@ Config strings:
 
 ExtMemSize	Specifies size of extended memory (above 1MB) in MB. This value is not checked for validity. Setting it false may cause the system to fail, possible after running for some time. The memory size is usually detected automatically, but if the detection does not work for some reason, or if you want to limit the amount of memory detected, this string can be set. For example, if the machine has 64MB of memory, this value can be set as ExtMemSize="63".
 *)
-

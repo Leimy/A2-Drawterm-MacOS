@@ -352,6 +352,7 @@ TYPE
 		PROCEDURE & Initialize( obj: ProtectedObject;  bodyProc: Body;  prio: INTEGER; fl: SET; stacksize: SIZE);
 		BEGIN
 			SELF.obj := obj;  condition := NIL;  continue := Unix.NewCond( );
+			lastThreadTimes := -1;
 			flags := fl;
 			priority := prio;
 			nextProcess := NIL;
@@ -681,12 +682,20 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 	VAR temp : SIGNED64;
 	BEGIN
 		ASSERT(process # NIL);
+		#IF AARCH64 THEN
+		(* Each A2 process is a pthread; wall time would charge sleeping processes 100%. *)
+		cpuCycles[0] := Unix.GetThreadCpuTime(process.threadId);
+		IF cpuCycles[0] < 0 THEN cpuCycles[0] := 0; RETURN END;
+		#ELSE
 		cpuCycles[0] := Machine.GetTimer();
+		#END
 
 		IF ~all THEN
 			temp := process.lastThreadTimes;
 			process.lastThreadTimes := cpuCycles[0];
-			cpuCycles[0] := cpuCycles[0] - temp;
+			IF temp < 0 THEN cpuCycles[0] := 0
+			ELSE cpuCycles[0] := MAX(0, cpuCycles[0] - temp)
+			END;
 		END;
 	END GetCpuCycles;
 
@@ -1046,4 +1055,3 @@ BEGIN
 	TraceProcessHook := NIL;
 	Init;
 END Objects.
-

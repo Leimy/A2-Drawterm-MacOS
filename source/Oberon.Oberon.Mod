@@ -451,7 +451,9 @@ by calling its handler when the system has nothing else to do. *)
 (** Remove a background task. *)
     PROCEDURE Remove* (T: Task);
       VAR t: Task;
-    BEGIN t := NextTask;
+    BEGIN
+      IF (T = NIL) OR (NextTask = NIL) THEN RETURN END;
+      t := NextTask;
       WHILE (t.next # NextTask) & (t.next # T) DO t := t.next END;
       IF t.next = T THEN t.next := t.next.next;
         IF NextTask = T THEN NextTask := NextTask.next END

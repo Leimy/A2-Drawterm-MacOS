@@ -14,7 +14,7 @@ MODULE WMShell; (** AUTHOR "staubesv"; PURPOSE "GUI for shell"; *)
  *)
 
 IMPORT
-	Shell, Streams, Pipes, Texts, TextUtilities, Strings,
+	Shell, Streams, Pipes, Texts, TextUtilities, Strings, HostClipboard,
 	Modules, Kernel, Inputs,
 	WMGraphics, WMWindowManager, WMMessages, WMRestorable,
 	WMComponents, WMDocumentEditor;
@@ -68,7 +68,13 @@ TYPE
 		PROCEDURE ExtKeyPressed(ucs : SIZE; flags : SET; VAR keySym : SIZE; VAR handled : BOOLEAN);
 		BEGIN
 			handled := FALSE;
-			IF editor.HandleShortcut(ucs, flags, keySym) THEN handled := TRUE; END;
+			IF ~(Inputs.Release IN flags) &
+				(((keySym = ORD("v")) & (flags * Inputs.Meta # {})) OR (keySym = 17H) OR
+				 ((keySym = ORD("w")) & (flags * Inputs.Ctrl # {}))) THEN
+				PasteFromHostClipboard; handled := TRUE
+			ELSIF ~(Inputs.Release IN flags) & (keySym = ORD("c")) & (flags * Inputs.Meta # {}) THEN
+				editor.editor.tv.CopySelection; handled := TRUE
+			ELSIF editor.HandleShortcut(ucs, flags, keySym) THEN handled := TRUE END;
 
 			IF ~handled & ~(Inputs.Release IN flags) THEN
 				handled := TRUE;
@@ -131,14 +137,29 @@ TYPE
 		PROCEDURE CopyFromClipboard;
 		VAR string : POINTER TO ARRAY OF CHAR;
 		BEGIN
+			string := NIL;
 			Texts.clipboard.AcquireRead;
 			IF Texts.clipboard.GetLength() > 0 THEN
 				NEW(string, Texts.clipboard.GetLength()+1);
 				TextUtilities.TextToStr(Texts.clipboard, string^);
 			END;
 			Texts.clipboard.ReleaseRead;
-			out.String(string^); out.Update;
+			IF string # NIL THEN out.String(string^); out.Update END
 		END CopyFromClipboard;
+
+		PROCEDURE PasteFromHostClipboard;
+		VAR clipboard: Texts.Text; string: POINTER TO ARRAY OF CHAR; res: INTEGER; length: SIZE;
+		BEGIN
+			NEW(clipboard); clipboard.AcquireWrite;
+			HostClipboard.Get(clipboard, res);
+			length := clipboard.GetLength();
+			clipboard.ReleaseWrite;
+			IF (res = HostClipboard.Ok) & (length > 0) THEN
+				NEW(string, length * 4 + 1);
+				TextUtilities.TextToStr(clipboard, string^);
+				out.String(string^); out.Update
+			END
+		END PasteFromHostClipboard;
 
 		PROCEDURE Finalize*;
 		BEGIN
@@ -195,6 +216,7 @@ TYPE
 			editor.SetToolbar(WMDocumentEditor.StoreButton + WMDocumentEditor.WrapButton + WMDocumentEditor.SearchButton + WMDocumentEditor.ClearButton);
 			editor.editor.tv.SetExtKeyEventHandler(ExtKeyPressed);
 			editor.editor.tv.SetExtPointerUpHandler(ExtPointerUp);
+			editor.editor.tv.onPieMenuPaste := PasteFromHostClipboard;
 			AddContent(editor);
 
 			NEW(text);

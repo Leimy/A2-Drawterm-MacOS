@@ -51,6 +51,20 @@ TYPE
 			modifierKeys := {};
 		END New;
 
+		(** Rebuild device buffers without replacing windows or changing zoom. *)
+		PROCEDURE ResizeDisplay*;
+		BEGIN
+			ASSERT(manager.lock.HasWriteLock());
+			NEW(backbuffer);
+			Raster.Create(backbuffer, display.width, display.height, Raster.DisplayFormat(display.format));
+			NEW(canvas, backbuffer);
+			canvas.SetFont(Graphics.GetDefaultFont()); canvas.SaveState(state);
+			deviceRect := Rect.MakeRect(0, 0, display.width, display.height);
+			width0 := display.width; height0 := display.height;
+			range.r := range.l + display.width * inffx;
+			range.b := range.t + display.height * inffy
+		END ResizeDisplay;
+
 		(**  Return the modifier keys that are pressed in the view *)
 		PROCEDURE GetKeyState*(VAR state : SET);
 		BEGIN
@@ -327,7 +341,8 @@ TYPE
 					ClipAtImage(tnr, backbuffer);
 					IF ((tnr.l < tnr.r) & (tnr.t < tnr.b))  THEN
 						display.Transfer(backbuffer.mem^, (tnr.l * backbuffer.fmt.bpp DIV 8) + tnr.t * backbuffer.bpr,
-						backbuffer.bpr, tnr.l, tnr.t, tnr.r - tnr.l, tnr.b -  tnr.t, Displays.set)
+						backbuffer.bpr, tnr.l, tnr.t, tnr.r - tnr.l, tnr.b -  tnr.t, Displays.set);
+						display.Update
 					END
 				END
 			END InternalDraw;

@@ -1,0 +1,7 @@
+/build/native-compiler/
+/build/native-desktop/
+/build/native-*/
+/AOS.*.Log
+/.tmp.*
+/scripts/__pycache__/
+/APPLE-SILICON-DRAWTERM-PLAN.md

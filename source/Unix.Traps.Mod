@@ -127,7 +127,7 @@ VAR
 			Register(w,"R14",mc.r_14);
 			Register(w,"R15",mc.r_15);
 			w.Ln;
-		#ELSIF ARM THEN
+			#ELSIF ARM THEN
 			Register(w,"R0",mc.r_0);
 			Register(w,"R1",mc.r_1);
 			Register(w,"R2",mc.r_2);
@@ -149,7 +149,24 @@ VAR
 			Register(w,"PC",mc.r_pc);
 			w.Ln;
 			Register(w,"cpsr",mc.cpsr);
-			Register(w,"fault",mc.fault_address);
+				Register(w,"fault",mc.fault_address);
+			#ELSIF AARCH64 THEN
+				Register(w,"X0",mc.r_x[0]); Register(w,"X1",mc.r_x[1]);
+				Register(w,"X2",mc.r_x[2]); Register(w,"X3",mc.r_x[3]); w.Ln;
+				Register(w,"X4",mc.r_x[4]); Register(w,"X5",mc.r_x[5]);
+				Register(w,"X6",mc.r_x[6]); Register(w,"X7",mc.r_x[7]); w.Ln;
+				Register(w,"X8",mc.r_x[8]); Register(w,"X9",mc.r_x[9]);
+				Register(w,"X10",mc.r_x[10]); Register(w,"X11",mc.r_x[11]); w.Ln;
+				Register(w,"X12",mc.r_x[12]); Register(w,"X13",mc.r_x[13]);
+				Register(w,"X14",mc.r_x[14]); Register(w,"X15",mc.r_x[15]); w.Ln;
+				Register(w,"X16",mc.r_x[16]); Register(w,"X17",mc.r_x[17]);
+				Register(w,"X18",mc.r_x[18]); Register(w,"X19",mc.r_x[19]); w.Ln;
+				Register(w,"X20",mc.r_x[20]); Register(w,"X21",mc.r_x[21]);
+				Register(w,"X22",mc.r_x[22]); Register(w,"X23",mc.r_x[23]); w.Ln;
+				Register(w,"X24",mc.r_x[24]); Register(w,"X25",mc.r_x[25]);
+				Register(w,"X26",mc.r_x[26]); Register(w,"X27",mc.r_x[27]); w.Ln;
+				Register(w,"X28",mc.r_x[28]); Register(w,"LR",mc.r_lr);
+				Register(w,"CPSR",mc.cpsr); w.Ln;
 		
 		#ELSE
 			unimplemented
@@ -187,7 +204,7 @@ VAR
 		ELSE
 			w.String( "[Recursive Trap] " );
 		END;
-		#IF ARM THEN
+			#IF ARM THEN
 			IF sig = 4 THEN
 				instruction := S.GET32(mc.r_pc);
 				IF instruction DIV 0x10000 = 0xF000 THEN
@@ -195,7 +212,15 @@ VAR
 					sig := 5;
 				END; 
 			END;
-		#ELSE
+			#ELSIF AARCH64 THEN
+				IF sig = Unix.SIGTRAP THEN
+					instruction := S.GET32(mc.r_pc);
+					IF SET(instruction) * SET(0FFE0001FH) = SET(0D4200000H) THEN
+						trapno := SIGNED32(instruction DIV 32 MOD 10000H);
+						sig := 5
+					END
+				END
+			#ELSE
 			IF sig = 5 THEN 
 				S.GET( mc.r_sp, trapno );  
 			END;
@@ -246,7 +271,11 @@ VAR
 			S.GET( sp, pc );   (* get return address on top of stack *)
 		END;
 
-		IF (sig = 5) & (trapno = 3) THEN DEC (pc) END;
+			#IF AARCH64 THEN
+				(* The saved PC already identifies the four-byte BRK instruction. *)
+			#ELSE
+				IF (sig = 5) & (trapno = 3) THEN DEC(pc) END
+			#END;
 
 		IF process # NIL THEN
 			Reflection.StackTraceBack( w, pc, bp, sp, Objects.GetStackBottom( process ), TRUE, FALSE );
@@ -296,7 +325,9 @@ VAR
 		entry := Modules.GetExceptionHandler( pc );
 		WHILE (entry = -1) & (fp <= process.stackBottom) & (fp#0) & (fp MOD SIZEOF(ADDRESS)=0) DO
 			S.GET( fp + AddrSize, pc );
-			pc := pc - 1;   (*  CALL instruction, machine dependent!!! *)
+				#IF AARCH64 THEN pc := pc - 4
+				#ELSE pc := pc - 1
+				#END;
 			entry := Modules.GetExceptionHandler( pc );
 			sp := fp;   (* Save the old framepointer into the stack pointer *)
 			S.GET( fp, fp ) (* Unwind PAF *)

@@ -640,6 +640,9 @@ TYPE
 			END;
 
 			callingConvention := procedureType.callingConvention;
+			IF (backend.name = "AArch64") &
+				(callingConvention = SyntaxTree.WinAPICallingConvention)
+			THEN callingConvention := SyntaxTree.CCallingConvention END;
 			IF callingConvention = SyntaxTree.WinAPICallingConvention THEN
 				parametersSize := ProcedureParametersSize(backend.system,x);
 			ELSE
@@ -1935,11 +1938,22 @@ TYPE
 							(* get type desc tag *)
 							IF IsPointerToRecord(x.left.type,recordType) THEN
 								Evaluate(x.left, left);
+								(* NIL is not an instance of any pointer extension.  In the
+								   non-cooperative runtime Dereference does not trap on NIL,
+								   but its type tag would be read from address -AddressSize. *)
+								LoadValue(left,system.addressType);
+								IF reason THEN
+									skip := NewLabel();
+									BreqL(skip,left.op,nil)
+								ELSE
+									BreqL(label,left.op,nil)
+								END;
 								Dereference(left,recordType,IsUnsafePointer(x.left.type))
 							ELSE
 								Designate(x.left,left);
 							END;
 							TypeTest(left.tag,x.right(SyntaxTree.SymbolDesignator).symbol(SyntaxTree.TypeDeclaration).declaredType.resolvedType,label,reason,FALSE);
+							IF IsPointerToRecord(x.left.type,recordType) & reason THEN SetLabel(skip) END;
 						END;
 						ReleaseOperand(left);
 						RETURN;
@@ -5698,6 +5712,9 @@ TYPE
 			resultDesignator := procedureResultDesignator; procedureResultDesignator := NIL;
 			procedureType := x.left.type.resolvedType(SyntaxTree.ProcedureType);
 			callingConvention := procedureType.callingConvention;
+			IF (backend.name = "AArch64") &
+				(callingConvention = SyntaxTree.WinAPICallingConvention)
+			THEN callingConvention := SyntaxTree.CCallingConvention END;
 
 			dest := destination; destination := emptyOperand;
 			SaveRegisters();ReleaseUsedRegisters(saved);
@@ -11380,6 +11397,9 @@ TYPE
 				BrL(exitLabel);
 			ELSE
 				callingConvention := procedureType.callingConvention;
+				IF (backend.name = "AArch64") &
+					(callingConvention = SyntaxTree.WinAPICallingConvention)
+				THEN callingConvention := SyntaxTree.CCallingConvention END;
 				IF callingConvention = SyntaxTree.WinAPICallingConvention THEN
 					parametersSize := ProcedureParametersSize(backend.system,procedure);
 				ELSE
@@ -13707,6 +13727,10 @@ TYPE
 			Info(moduleSection, "init, published: BOOLEAN");
 			Boolean(moduleSection,FALSE);
 			Boolean(moduleSection,FALSE);
+			Info(moduleSection, "codeBase*: ADDRESS");
+			Address(moduleSection,0);
+			Info(moduleSection, "codeSize*: SIZE");
+			Size(moduleSection,0);
 
 			IF implementationEmitter.backend.cooperative THEN
 				PatchSymbol(moduleSection,MonitorOffset,moduleSection.name,NIL,moduleSection.pc,0);

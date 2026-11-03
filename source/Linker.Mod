@@ -108,6 +108,9 @@ TYPE
 		displacement: GenericLinker.Address;
 		bits: BitSets.BitSet;
 		maxUnitSize: ObjectFile.Bits;
+		preallocatedBits: ObjectFile.Bits;
+		after: Arrangement;
+		afterAlignment: SIZE;
 
 		exportInfo: ExportInfo;
 		relocInfo: RelocationInfo;
@@ -115,11 +118,37 @@ TYPE
 	PROCEDURE & InitArrangement* (displacement: GenericLinker.Address);
 	BEGIN
 		SELF.displacement := displacement; maxUnitSize := 1; NEW (bits, 0); exportInfo := NIL; NEW(relocInfo);
+		preallocatedBits := 0; after := NIL; afterAlignment := 1
 	END InitArrangement;
+
+	PROCEDURE SetAfter*(prefix: Arrangement; alignment: SIZE);
+	BEGIN
+		after := prefix; afterAlignment := alignment
+	END SetAfter;
+
+	PROCEDURE Preallocate* (CONST section: ObjectFile.Section);
+	VAR address, alignment: ObjectFile.Bits;
+	BEGIN
+		IF section.unit > maxUnitSize THEN maxUnitSize := section.unit END;
+		IF section.fixed THEN
+			address := ObjectFile.Bits((section.alignment - displacement) * section.unit)
+		ELSE
+			address := preallocatedBits; alignment := section.alignment * section.unit;
+			IF alignment = 0 THEN alignment := section.unit END;
+			INC(address, (alignment - address MOD alignment) MOD alignment)
+		END;
+		IF preallocatedBits < section.bits.GetSize() + address THEN
+			preallocatedBits := section.bits.GetSize() + address
+		END
+	END Preallocate;
 
 	PROCEDURE Allocate* (CONST section: ObjectFile.Section): GenericLinker.Address;
 	VAR address, alignment: ObjectFile.Bits; i, j: SIZE; name: ObjectFile.SegmentedName;
 	BEGIN
+		IF (after # NIL) & (bits.GetSize() = 0) THEN
+			displacement := after.preallocatedBits DIV 8;
+			INC(displacement, (-displacement) MOD afterAlignment)
+		END;
 		IF section.unit > maxUnitSize THEN maxUnitSize := section.unit END;
 		IF section.fixed THEN
 			address := ObjectFile.Bits((section.alignment - displacement) * section.unit);
@@ -247,15 +276,56 @@ BEGIN
 	pb := arr.relocInfo.patchBlock; relocations := 0;
 	WHILE pb # NIL DO
 		FOR i := 0 TO pb.addresses -1 DO
-			w.RawInt32( pb.address[i] );  INC( relocations );
+			w.RawLInt( pb.address[i] );  INC( relocations );
 		END;
 		pb := pb.next;
 	END;
 	(* now patch header (cf  Unix.Glue.Mod)  *)
 	w.SetPos( 24 );
-	w.RawInt32( binsize(SIGNED32) );
-	w.RawInt32( relocations(SIGNED32) );
+	w.RawLInt( binsize(SIGNED32) );
+	w.RawLInt( relocations(SIGNED32) );
 END WriteRelocations;
+
+PROCEDURE CountRelocations(arr: Arrangement): SIZE;
+VAR pb: PatchBlock; relocations: SIZE;
+BEGIN
+	relocations := 0; pb := arr.relocInfo.patchBlock;
+	WHILE pb # NIL DO INC(relocations, pb.addresses); pb := pb.next END;
+	RETURN relocations
+END CountRelocations;
+
+PROCEDURE WriteRelocationEntries(arr: Arrangement; w: Files.Writer);
+VAR pb: PatchBlock; i: SIZE;
+BEGIN
+	pb := arr.relocInfo.patchBlock;
+	WHILE pb # NIL DO
+		FOR i := 0 TO pb.addresses - 1 DO w.RawLInt(pb.address[i]) END;
+		pb := pb.next
+	END
+END WriteRelocationEntries;
+
+PROCEDURE WriteSplitUnixOutput(code, data: Arrangement; CONST fileName: Files.FileName;
+	linker: GenericLinker.Linker);
+VAR file: Files.File; writer: Files.Writer; i, position, binarySize, relocations: SIZE;
+BEGIN
+	file := Files.New(fileName); Files.OpenWriter(writer, file, 0);
+	FOR i := 0 TO code.bits.GetSize() - 1 BY 8 DO
+		writer.Char(CHR(code.bits.GetBits(i, 8)))
+	END;
+	position := code.bits.GetSize() DIV 8;
+	WHILE position < data.displacement DO writer.Char(0X); INC(position) END;
+	FOR i := 0 TO data.bits.GetSize() - 1 BY 8 DO
+		writer.Char(CHR(data.bits.GetBits(i, 8)))
+	END;
+	binarySize := writer.Pos();
+	WriteRelocationEntries(code, writer); WriteRelocationEntries(data, writer);
+	relocations := CountRelocations(code) + CountRelocations(data);
+	(* The second reserved header word is the first non-executable byte. *)
+	writer.SetPos(20); writer.RawLInt(data.displacement(SIGNED32));
+	writer.RawLInt(binarySize(SIGNED32)); writer.RawLInt(relocations(SIGNED32));
+	writer.Update; Files.Register(file);
+	linker.Information(fileName, "written split executable/data Unix image")
+END WriteSplitUnixOutput;
 
 PROCEDURE WriteOutputFile* (arrangement: Arrangement; CONST fileName: Files.FileName; linker: GenericLinker.Linker; fileFormat: FileFormat);
 VAR file: Files.File; writer: Files.Writer; msg: ARRAY 64 OF CHAR; number: ARRAY 32 OF CHAR;
@@ -965,7 +1035,7 @@ END CheckExports;
 
 PROCEDURE Link* (context: Commands.Context);
 VAR options: Options.Options;
-	silent, useAll, strict: BOOLEAN;
+	silent, useAll, strict, splitCodeData: BOOLEAN;
 	codeFileFormat, dataFileFormat: FileFormat;
 	codeDisplacement, dataDisplacement: SIGNED32;
 	path, extension, codeFileName, dataFileName, moduleName, logFileName, tempName: Files.FileName;
@@ -985,6 +1055,7 @@ BEGIN
 	options.Add (0X, "silent", Options.Flag);
 	options.Add ('a', "useAll", Options.Flag);
 	options.Add ('s', "strict", Options.Flag);
+	options.Add (0X, "splitCodeData", Options.Flag);
 	options.Add (0X, "path", Options.String); options.Add (0X, "extension", Options.String);
 	options.Add (0X, "fileName", Options.String); options.Add (0X, "dataFileName", Options.String);
 	options.Add (0X, "displacement", Options.Integer); options.Add (0X, "dataDisplacement", Options.Integer);
@@ -1013,6 +1084,7 @@ BEGIN
 	silent := options.GetFlag ("silent");
 	useAll := options.GetFlag ("useAll");
 	strict := options.GetFlag ("strict");
+	splitCodeData := options.GetFlag("splitCodeData");
 	IF ~options.GetString ("path", path) THEN path := ""; END;
 	IF ~options.GetString ("extension", extension) THEN extension := ObjectFile.DefaultExtension; END;
 	IF ~options.GetString ("fileName", codeFileName) THEN codeFileName := "linker.bin"; END;
@@ -1036,7 +1108,11 @@ BEGIN
 			COPY(codeFileName, code.exportInfo.name);
 		END;
 	END;
-	IF codeFileName # dataFileName THEN NEW (data, dataDisplacement); ELSE data := code; END;
+	IF splitCodeData THEN
+		NEW(data, 0); data.SetAfter(code, 16384)
+	ELSIF codeFileName # dataFileName THEN NEW (data, dataDisplacement)
+	ELSE data := code
+	END;
 	NEW (diagnostics, context.error);
 	logFile := Files.New(logFileName);
 	IF logFile # NIL THEN NEW(log, logFile,0) ELSE log := NIL END;
@@ -1060,15 +1136,19 @@ BEGIN
 
 	IF ~linker.error & CheckExports(code.exportInfo, context.error) THEN
 		IF (code.displacement # 0) & (linker.log # NIL) THEN linker.log.String("code displacement 0"); linker.log.Hex(code.displacement,-8); linker.log.String("H"); linker.log.Ln END;
-		WriteOutputFile (code, codeFileName, linker, codeFileFormat);
-		IF data # code THEN
+		IF splitCodeData THEN
+			WriteSplitUnixOutput(code, data, codeFileName, linker)
+		ELSE
+			WriteOutputFile (code, codeFileName, linker, codeFileFormat)
+		END;
+		IF (data # code) & ~splitCodeData THEN
 			IF (data.displacement # 0) & (linker.log # NIL) THEN linker.log.String("data displacement 0"); linker.log.Hex(data.displacement,-8); linker.log.String("H"); linker.log.Ln END;
 			WriteOutputFile (data, dataFileName, linker, dataFileFormat);
 		END;
 		IF ~silent THEN
 			context.out.String("Link successful. Written files: ");
 			context.out.String(codeFileName);
-			IF data # code THEN context.out.String(", "); context.out.String(dataFileName) END;
+			IF (data # code) & ~splitCodeData THEN context.out.String(", "); context.out.String(dataFileName) END;
 			IF logFile # NIL THEN context.out.String(", "); context.out.String(logFileName); END;
 
 			context.out.Ln
@@ -1109,4 +1189,3 @@ Linker.Link --fileName=a.out --fileFormat=ELF --displacement=08048000H Test ~
 Linker.Link --fileName=a.out --fileFormat=MACHO --displacement=000010E8H Test ~
 
 System.Free Linker ~
-

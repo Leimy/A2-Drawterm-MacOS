@@ -1,0 +1,83 @@
+<Standard:Panel caption=" Tools ">
+  <Properties><FillColor>0</FillColor></Properties>
+  <Standard:Panel>
+    <Properties><Alignment>1</Alignment><Bounds><Width>180</Width></Bounds></Properties>
+    <Standard:Button>
+      <Properties>
+        <Caption>Search</Caption>
+        <Alignment>2</Alignment>
+        <OnClickHandler>X Run</OnClickHandler>
+      </Properties>
+      <Standard:SystemCommand>
+        <Properties><ID>X</ID>
+          <CommandString>WMSearchTool.Open</CommandString>
+        </Properties>
+      </Standard:SystemCommand>
+    </Standard:Button>
+    <Standard:Button>
+      <Properties>
+        <Caption>Archives</Caption>
+        <Alignment>2</Alignment>
+        <OnClickHandler>X Run</OnClickHandler>
+      </Properties>
+      <Standard:SystemCommand>
+        <Properties><ID>X</ID>
+          <CommandString>WMArchives.Open</CommandString>
+        </Properties>
+      </Standard:SystemCommand>
+    </Standard:Button>
+  </Standard:Panel>
+  <Standard:Panel>
+    <Properties><Alignment>1</Alignment><Bounds><Width>180</Width></Bounds></Properties>
+    <Standard:Button>
+      <Properties>
+        <Caption>Diff</Caption>
+        <Alignment>2</Alignment>
+        <OnClickHandler>X Run</OnClickHandler>
+      </Properties>
+      <Standard:SystemCommand>
+        <Properties><ID>X</ID>
+          <CommandString>WMDiff.Open</CommandString>
+        </Properties>
+      </Standard:SystemCommand>
+    </Standard:Button>
+    <Standard:Button>
+      <Properties>
+        <Caption>Object tracker</Caption>
+        <Alignment>2</Alignment>
+        <OnClickHandler>X Run</OnClickHandler>
+      </Properties>
+      <Standard:SystemCommand>
+        <Properties><ID>X</ID>
+          <CommandString>WMObjectTracker.Open</CommandString>
+        </Properties>
+      </Standard:SystemCommand>
+    </Standard:Button>
+  </Standard:Panel>
+  <Standard:Panel>
+    <Properties><Alignment>1</Alignment><Bounds><Width>180</Width></Bounds></Properties>
+    <Standard:Button>
+      <Properties>
+        <Caption>Event log</Caption>
+        <Alignment>2</Alignment>
+        <OnClickHandler>X Run</OnClickHandler>
+      </Properties>
+      <Standard:SystemCommand>
+        <Properties><ID>X</ID>
+          <CommandString>WMEventLog.Open</CommandString>
+        </Properties>
+      </Standard:SystemCommand>
+    </Standard:Button>
+  </Standard:Panel>
+  <Standard:Panel>
+    <Properties><Alignment>1</Alignment><Bounds><Width>180</Width></Bounds></Properties>
+    <Standard:Button>
+      <Properties><Caption>Color picker</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMColorPicker.Open</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
+    <Standard:Button>
+      <Properties><Caption>Text styles</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMTextStyleTool.Open</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
+  </Standard:Panel>
+</Standard:Panel>

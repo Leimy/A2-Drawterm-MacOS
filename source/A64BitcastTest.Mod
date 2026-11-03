@@ -1,0 +1,35 @@
+MODULE A64BitcastTest;
+
+IMPORT SYSTEM, Trace;
+
+PROCEDURE SingleValue(): FLOAT32;
+BEGIN RETURN 10 END SingleValue;
+
+PROCEDURE DoubleValue(): FLOAT64;
+BEGIN RETURN 10 END DoubleValue;
+
+PROCEDURE Bits32(): SIGNED32;
+BEGIN RETURN 041200000H END Bits32;
+
+PROCEDURE Bits64(): SIGNED64;
+BEGIN RETURN 04024000000000000H END Bits64;
+
+PROCEDURE Run*;
+VAR single: FLOAT32; double: FLOAT64; bits32: SIGNED32; bits64: SIGNED64;
+BEGIN
+    single := 10;
+    bits32 := SYSTEM.VAL(SIGNED32, single);
+    ASSERT(bits32 = 041200000H);
+    ASSERT(SYSTEM.VAL(FLOAT32, bits32) = single);
+    ASSERT(SYSTEM.VAL(SIGNED32, SingleValue()) = Bits32());
+    ASSERT(SYSTEM.VAL(FLOAT32, Bits32()) = single);
+    double := 10;
+    bits64 := SYSTEM.VAL(SIGNED64, double);
+    ASSERT(bits64 = 04024000000000000H);
+    ASSERT(SYSTEM.VAL(FLOAT64, bits64) = double);
+    ASSERT(SYSTEM.VAL(SIGNED64, DoubleValue()) = Bits64());
+    ASSERT(SYSTEM.VAL(FLOAT64, Bits64()) = double);
+    Trace.StringLn("SYSTEM.VAL bitcast tests passed")
+END Run;
+
+END A64BitcastTest.

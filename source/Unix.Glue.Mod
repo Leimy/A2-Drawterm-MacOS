@@ -40,7 +40,7 @@ VAR
 		DD @argv			; Loader --> Oberon
 		DD @environ		; Loader --> Oberon
 		DD @cout			; Loader --> Oberon
-	#ELSIF AMD64 THEN
+		#ELSIF AMD64 OR AARCH64 THEN
 		DB 'Oberon64G.binary'	; ID (24 byte)
 		DD 0
 		DD 0

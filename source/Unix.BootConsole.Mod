@@ -1,6 +1,13 @@
 MODULE BootConsole;	(** AUTHOR "G.F."; PURPOSE "Boot console"; *)
 
-IMPORT S := SYSTEM, Trace, Unix, Machine, Modules, Objects, Commands, KernelLog;
+IMPORT S := SYSTEM, Trace, Unix, Machine, Modules, Objects, Commands, KernelLog,
+	DrawtermDisplay, DrawtermInput, OberonInput,
+	WindowManager, DisplayRefresher
+	#IF DESKTOP THEN
+	, DarwinDesktop, MainMenu, DrawtermClipboard
+	#ELSE
+	, ConcurrentSieve, DrawtermInputMonitor
+	#END;
 
 TYPE
 	Module = Modules.Module;
@@ -76,11 +83,11 @@ TYPE
 			IF m.name = "BootConsole" THEN  EXIT   END;   (* initialize modules belonging to bootfile only *)
 			IF trace THEN
 				Trace.String( "#### Initializing " );  Trace.String( m.name );
-				Trace.String( "     code: [" ); Trace.Hex( ADDRESSOF( m.code[0] ), -8 );
-				Trace.String( ".." ); Trace.Hex( ADDRESSOF( m.code[0] ) + LEN( m.code^ ), -8 );
+				Trace.String( "     code: [" ); Trace.Hex( Modules.CodeAddress(m), -8 );
+				Trace.String( ".." ); Trace.Hex( Modules.CodeAddress(m) + Modules.CodeLength(m), -8 );
 				Trace.Char( ']' ); Trace.Ln
 			END;
-			body := S.VAL( Body, ADDRESSOF( m.code[0] ) );
+			body := S.VAL( Body, Modules.CodeAddress(m) );
 			body;
 			m := m.next
 		END
@@ -91,6 +98,7 @@ TYPE
 	BEGIN
 		KernelLog.String( Machine.version );  KernelLog.Ln;
 		LoadModule( "Clock" );
+		#IF ~AARCH64 THEN
 		Execute( "XDisplay",  "Install" );
 		Execute( "KbdMouse",  "Init" );
 
@@ -98,6 +106,38 @@ TYPE
 		Command( "DisplayRefresher.Install" );
 
 		Command( "Autostart.Run" );
+		#ELSE
+			Trace.StringLn( "Native runtime ready" );
+			DrawtermDisplay.Install;
+			DrawtermInput.Install;
+			OberonInput.Install;
+			#IF DESKTOP THEN
+				DrawtermClipboard.Install;
+				WindowManager.Replace(SIGNED32(8080FFFFH), FALSE, FALSE);
+				DarwinDesktop.Open;
+				MainMenu.Open;
+				DisplayRefresher.onResize := MainMenu.Relocate;
+				DisplayRefresher.Install;
+				KernelLog.String("drawterm paint: transfers="); KernelLog.Int(DrawtermDisplay.display.transfers, 0);
+				KernelLog.String(" updates="); KernelLog.Int(DrawtermDisplay.display.updates, 0);
+				KernelLog.String(" uploads="); KernelLog.Int(DrawtermDisplay.display.uploads, 0);
+				KernelLog.String(" ready="); KernelLog.Boolean(DrawtermDisplay.display.ready); KernelLog.Ln;
+				IF DrawtermDisplay.display.ready THEN
+					Trace.StringLn( "drawterm desktop initialized" )
+				END
+			#ELSE
+				ConcurrentSieve.Demo;
+				DrawtermInputMonitor.Install;
+			#END;
+			#IF ~DESKTOP THEN
+				IF (DrawtermDisplay.display # NIL) & DrawtermDisplay.display.ready THEN
+					Objects.Sleep(100);
+					DrawtermDisplay.display.Fill(0FF8000H, 12, 12, 48, 48);
+					DrawtermDisplay.display.Update;
+					KernelLog.String("drawterm multiplexed update ready"); KernelLog.Ln
+				END
+			#END;
+		#END;
 	END StartSystem;
 
 	PROCEDURE InitSignalHandling;
@@ -137,8 +177,8 @@ TYPE
 		#END;
 	END Start;
 
-(*BEGIN
-	Start *)
+BEGIN
+	#IF AARCH64 THEN
+		Start
+	#END
 END BootConsole.
-
-

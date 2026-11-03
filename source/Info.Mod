@@ -378,7 +378,7 @@ BEGIN
 			context.out.String(" refcnt = "); context.out.Int(m.refcnt, 1);
 			context.out.String(" sb ="); context.out.Hex(m.sb, 9);
 			context.out.String(" dataSize = "); context.out.Int(LEN(m.data), 1);
-			context.out.String(" codeSize = "); context.out.Int(LEN(m.code), 1);
+			context.out.String(" codeSize = "); context.out.Int(Modules.CodeLength(m), 1);
 			context.out.String(" refSize = "); context.out.Int(LEN(m.refs), 1);
 			context.out.String(" entries = "); context.out.Int(LEN(m.entry), 1);
 			context.out.String(" commands = "); context.out.Int(LEN(m.command), 1);

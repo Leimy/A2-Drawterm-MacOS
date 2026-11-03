@@ -172,6 +172,7 @@ TYPE
 			dragCopy := FALSE;
 			renderOffsetX := textBorder.Get();
 			lastX := -1; lastY := -1;
+			manager := WMWindowManager.GetDefaultManager();
 			SetPointerInfo(manager.pointerText);
 			takesFocus.Set(TRUE);
 			SetAttributeValue("Value","");
@@ -1759,10 +1760,15 @@ TYPE
 			ELSIF keySym = 0FF55H THEN (* Page Up *)
 				tv.PageUp(flags * Inputs.Shift # {})
 			ELSIF keySym = 0FF50H THEN (* Cursor Home *)
-				tv.Home(flags * Inputs.Ctrl # {}, flags * Inputs.Shift # {})
+				 tv.Home(flags * Inputs.Ctrl # {}, flags * Inputs.Shift # {})
 			ELSIF keySym = 0FF57H THEN (* Cursor End *)
 				tv.End(flags * Inputs.Ctrl # {}, flags * Inputs.Shift # {})
 			(* end of relay section *)
+			ELSIF (keySym = ORD("v")) & (flags * Inputs.Meta # {}) THEN
+				textChanged := TRUE;
+				PasteToHostClipboard
+			ELSIF (keySym = ORD("c")) & (flags * Inputs.Meta # {}) THEN
+				CopySelection
 			ELSIF keySym =  016H THEN (* Ctrl-V *)
 				textChanged := TRUE;
 				Paste
@@ -1943,7 +1949,6 @@ BEGIN
 END FindEditor;
 
 BEGIN
-	manager := WMWindowManager.GetDefaultManager();
 	InitStrings;
 	InitPrototypes;
 END WMEditors.

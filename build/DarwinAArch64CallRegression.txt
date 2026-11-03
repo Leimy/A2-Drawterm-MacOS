@@ -1,0 +1,3 @@
+System.DoFile oberon.ini ~
+Compiler.Compile -b=AArch64 --trace=* --objectFileExtension=.GofAa --symbolFileExtension=.SymAa A64CallRegression.Mod ~
+Linker.Link --fileName=A64CallRegression.bin --extension=.GofAa --linkRoot=A64CallRegression A64CallRegression

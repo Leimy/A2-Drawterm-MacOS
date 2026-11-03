@@ -1,0 +1,362 @@
+diff --git a/README b/README
+index 1726b93..7f611bf 100644
+--- a/README
++++ b/README
+@@ -24,6 +24,11 @@ USAGE
+ -------
+ On Android the five checkboxes at the top represent the three mouse buttons and mousewheel, determining which "buttons" are clicked. The "kb" button toggles the soft keyboard.
+ 
++For a local graphical runtime that already owns a connected stream, `-D`
++exports drawterm's namespace directly as 9P on standard input and output.
++It skips dialing, authentication, and the rcpu shell handshake while retaining
++`/dev/draw`, `/dev/mouse`, `/dev/kbd`, and `/dev/snarf`.
++
+ 
+ CAVEATS
+ --------
+diff --git a/cpu.c b/cpu.c
+index 5d32659..2b7a052 100644
+--- a/cpu.c
++++ b/cpu.c
+@@ -29,6 +29,7 @@ static int	nokbd;
+ static int	nogfx;
+ static int	nineflag;
+ static int	fdconn;
++int	directfs;
+ 
+ static char	*ealgs = "rc4_256 sha1";
+ 
+@@ -283,7 +284,7 @@ ncpu(char *host, char *cmd)
+ void
+ usage(void)
+ {
+-	fprint(2, "usage: %s [-09GBO] "
++	fprint(2, "usage: %s [-09DGBO] "
+ 		"[-h host] [-u user] [-a authserver] [-s secstore] "
+ 		"[-e 'crypt hash'] [-k keypattern] "
+ 		"[-p] [-t timeout] "
+@@ -311,6 +312,10 @@ cpumain(int argc, char **argv)
+ 	case '0':
+ 		fdconn = 1;
+ 		break;
++	case 'D':
++		/* Graphical, shell-free device export on inherited fds 0 and 1. */
++		directfs = 1;
++		break;
+ 	case '9':
+ 		nineflag = 1;
+ 		/* wet floor */
+@@ -411,12 +416,20 @@ cpubody(void)
+ 			panic("bind #i: %r");
+ 		if(bind("#m", "/dev", MBEFORE) < 0)
+ 			panic("bind #m: %r");
+-		if(cmd == nil)
++		if(cmd == nil && !directfs)
+ 			atexit(ending);
+ 	}
+ 	if(bind("/root", "/", MAFTER) < 0)
+ 		panic("bind /root: %r");
+ 
++	if(directfs){
++		/* Match the normal rcpu namespace without its shell handshake. */
++		if(!nokbd && bind("#b", "/dev", MAFTER) < 0)
++			panic("bind #b: %r");
++		exportfs(lfdfd(0), lfdfd(1));
++		exits(nil);
++	}
++
+ 	if(fdconn){
+ 		/*
+ 		 * connection is on fd 0/1 already: no host, no auth,
+diff --git a/drawterm.1 b/drawterm.1
+index 0e8a436..190e106 100644
+--- a/drawterm.1
++++ b/drawterm.1
+@@ -6,7 +6,7 @@ drawterm  \- connection to cpu, fs, and auth servers
+ .SH SYNOPSIS
+ .B drawterm
+ [
+-.B -09GBO
++.B -09DGBO
+ ] [
+ .B -h
+ .I host
+@@ -76,6 +76,18 @@ Start drawterm in 9P mode;
+ exporting the namespace over 9P on standard input and output.
+ Graphics and keyboard input are disabled.
+ 
++.TP
++.B -D
++Export the graphical drawterm namespace directly over 9P on file
++descriptors 0 and 1.  Dialing, authentication, and the
++.IR rcpu (1)
++shell handshake are skipped.  The exported namespace includes
++.IR draw (3),
++.IR mouse (3),
++.IR kbd (3),
++and the clipboard device.  The inherited transport is assumed to be
++trusted; this mode is intended for a local supervisor and guest runtime.
++
+ .TP
+ .B -G
+ Start drawterm in text-only mode (no graphics).
+diff --git a/gui-cocoa/screen.m b/gui-cocoa/screen.m
+index cc2a1c8..6e64141 100644
+--- a/gui-cocoa/screen.m
++++ b/gui-cocoa/screen.m
+@@ -27,6 +27,7 @@
+ 
+ Memimage *gscreen; 
+ extern int scalef;
++extern int directfs;
+ 
+ @interface DrawLayer : CAMetalLayer
+ @property id<MTLTexture> texture;
+@@ -55,6 +56,10 @@ @interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
+ static uchar *scalebuf;
+ static size_t scalebufsz;
+ static int forcefullredraw;
++static int displaypending;
++static NSRect displayrect;
++static int displayfull;
++static int softwaredisplay;
+ 
+ static int
+ isready(void*a)
+@@ -71,6 +76,12 @@ @interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
+ 		[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+ 		myApp = [AppDelegate new];
+ 		[NSApp setDelegate:myApp];
++		[NSApp finishLaunching];
++		dispatch_async(dispatch_get_main_queue(), ^(void){
++			NSNotification *notification = [NSNotification
++				notificationWithName:NSApplicationDidFinishLaunchingNotification object:NSApp];
++			[myApp applicationDidFinishLaunching:notification];
++		});
+ 		[NSApp run];
+ 	}
+ }
+@@ -148,7 +159,15 @@ @interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
+ {
+ 	memimageinit();
+ 	NSSize s = scalesize(myview.frame.size);
++	if(directfs && (s.width < 800 || s.height < 600)){
++		s = NSMakeSize(1024, 768);
++		dispatch_async(dispatch_get_main_queue(), ^(void){
++			[[myview window] setContentSize:NSMakeSize(1024, 768)];
++		});
++	}
+ 	screensize(Rect(0, 0, s.width, s.height), ARGB32);
++	if(gscreen == nil)
++		return;
+ 	gscreen->clipr = Rect(0, 0, s.width, s.height);
+ 	forcefullredraw = 1;
+ 	LOG(@"%g %g", s.width, s.height);
+@@ -177,23 +196,23 @@ @interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
+ 		return;
+ 	}
+ 	DrawLayer *layer = (DrawLayer *)myview.layer;
+-	MTLTextureDescriptor *textureDesc = [MTLTextureDescriptor
+-		texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+-		width:tw
+-		height:th
+-		mipmapped:NO];
+-	textureDesc.allowGPUOptimizedContents = NO;
+-	textureDesc.storageMode = MTLStorageModeShared;
+-	textureDesc.usage = MTLTextureUsageShaderRead;
+-	textureDesc.cpuCacheMode = MTLCPUCacheModeWriteCombined;
+-	layer.texture = [layer.device newTextureWithDescriptor:textureDesc];
+-	if(layer.texture == nil){
+-		freememimage(i);
+-		return;
++	if(layer.device != nil){
++		MTLTextureDescriptor *textureDesc = [MTLTextureDescriptor
++			texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
++			width:tw
++			height:th
++			mipmapped:NO];
++		textureDesc.allowGPUOptimizedContents = NO;
++		textureDesc.storageMode = MTLStorageModeShared;
++		textureDesc.usage = MTLTextureUsageShaderRead;
++		textureDesc.cpuCacheMode = MTLCPUCacheModeWriteCombined;
++		layer.texture = [layer.device newTextureWithDescriptor:textureDesc];
++	}
++	softwaredisplay = layer.texture == nil;
++	if(!softwaredisplay){
++		[layer setDrawableSize:NSMakeSize(tw, th)];
++		[layer setContentsScale:backingscale()];
+ 	}
+-
+-	[layer setDrawableSize:NSMakeSize(tw, th)];
+-	[layer setContentsScale:backingscale()];
+ }
+ 	old = gscreen;
+ 	gscreen = i;
+@@ -252,14 +271,14 @@ @interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
+ 		return;
+ 	LOG(@"-> %d %d %d %d", r.min.x, r.min.y, Dx(r), Dy(r));
+ 	@autoreleasepool{
+-		int ts = texturescale();
+-		if(ts == 1){
+-			[((DrawLayer *)myview.layer).texture
++			int ts = softwaredisplay ? 1 : texturescale();
++			if(!softwaredisplay && ts == 1){
++				[((DrawLayer *)myview.layer).texture
+ 				replaceRegion:MTLRegionMake2D(r.min.x, r.min.y, Dx(r), Dy(r))
+ 				mipmapLevel:0
+ 				withBytes:byteaddr(gscreen, Pt(r.min.x, r.min.y))
+ 				bytesPerRow:gscreen->width * 4];
+-		}else{
++			}else if(!softwaredisplay){
+ 			int sw, sh, x, y, sx, sy;
+ 			size_t stride;
+ 			uchar *dst, *src;
+@@ -293,30 +312,39 @@ @interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
+ 		int full = forcefullredraw;
+ 		if(full)
+ 			forcefullredraw = 0;
++		/*
++		 * Coalesce flushes while one main-queue invalidation is pending.
++		 * Animation can otherwise enqueue several presentations of the
++		 * same mutable texture; by the time old callbacks run, the texture
++		 * may already contain a later frame.  Only the newest pixels matter,
++		 * but retain the union of dirty rectangles for partial updates.
++		 */
++		@synchronized(myview){
++			if(displaypending){
++				displayrect = NSUnionRect(displayrect, sr);
++				displayfull |= full;
++				return;
++			}
++			displaypending = 1;
++			displayrect = sr;
++			displayfull = full;
++		}
+ 		dispatch_async(dispatch_get_main_queue(), ^(void){@autoreleasepool{
+-			LOG(@"setNeedsDisplayInRect %g %g %g %g", sr.origin.x, sr.origin.y, sr.size.width, sr.size.height);
+-			if(full)
+-				[myview setNeedsDisplay:YES];
+-			else
+-				[myview setNeedsDisplayInRect:sr];
+-			[myview enlargeLastInputRect:sr];
+-		}});
+-		// ReplaceRegion is somehow asynchronous since 10.14.5.  We wait sometime to request a update again.
+-		dispatch_time_t time = dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_MSEC);
+-		dispatch_after(time, dispatch_get_main_queue(), ^(void){@autoreleasepool{
+-			LOG(@"setNeedsDisplayInRect %g %g %g %g again", sr.origin.x, sr.origin.y, sr.size.width, sr.size.height);
+-			if(full)
+-				[myview setNeedsDisplay:YES];
+-			else
+-				[myview setNeedsDisplayInRect:sr];
+-		}});
+-		time = dispatch_time(DISPATCH_TIME_NOW, 16 * NSEC_PER_MSEC);
+-		dispatch_after(time, dispatch_get_main_queue(), ^(void){@autoreleasepool{
+-			LOG(@"setNeedsDisplayInRect %g %g %g %g again", sr.origin.x, sr.origin.y, sr.size.width, sr.size.height);
+-			if(full)
++			NSRect dr;
++			int df;
++
++			@synchronized(myview){
++				dr = displayrect;
++				df = displayfull;
++				displaypending = 0;
++				displayfull = 0;
++			}
++			LOG(@"setNeedsDisplayInRect %g %g %g %g", dr.origin.x, dr.origin.y, dr.size.width, dr.size.height);
++			if(df)
+ 				[myview setNeedsDisplay:YES];
+ 			else
+-				[myview setNeedsDisplayInRect:sr];
++				[myview setNeedsDisplayInRect:dr];
++			[myview enlargeLastInputRect:dr];
+ 		}});
+ 	}
+ }
+@@ -449,6 +477,7 @@ @interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
+ @implementation AppDelegate
+ {
+ 	NSWindow *_window;
++	BOOL _didFinishStartup;
+ }
+ 
+ static void
+@@ -459,6 +488,9 @@ @implementation AppDelegate
+ 
+ - (void) applicationDidFinishLaunching:(NSNotification *)aNotification
+ {
++	if(_didFinishStartup)
++		return;
++	_didFinishStartup = YES;
+ 	LOG(@"BEGIN");
+ 
+ 	NSMenu *sm = [NSMenu new];
+@@ -480,6 +512,8 @@ - (void) applicationDidFinishLaunching:(NSNotification *)aNotification
+ 	r.size.width = r.size.width*3/4;
+ 	r.size.height = r.size.height*3/4;
+ 	r = [NSWindow contentRectForFrameRect:r styleMask:Winstyle];
++	if(r.size.width < 800 || r.size.height < 600)
++		r = NSMakeRect(0, 0, 1024, 768);
+ 
+ 	_window = [[NSWindow alloc] initWithContentRect:r styleMask:Winstyle
+ 		backing:NSBackingStoreBuffered defer:NO];
+@@ -494,6 +528,8 @@ - (void) applicationDidFinishLaunching:(NSNotification *)aNotification
+ 
+ 	myview = [DrawtermView new];
+ 	[_window setContentView:myview];
++	if(((DrawLayer *)myview.layer).device == nil)
++		[myview setWantsLayer:NO];
+ 
+ 	[NSEvent setMouseCoalescingEnabled:NO];
+ 	setcursor();
+@@ -502,8 +538,13 @@ - (void) applicationDidFinishLaunching:(NSNotification *)aNotification
+ 	[NSApp activateIgnoringOtherApps:YES];
+ 
+ 	LOG(@"launch mainproc");
+-	kproc("mainproc", mainproc, 0);
+-	ksleep(&rend, isready, 0);
++	if(directfs){
++		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC),
++			dispatch_get_main_queue(), ^(void){ kproc("mainproc", mainproc, 0); });
++	}else{
++		kproc("mainproc", mainproc, 0);
++		ksleep(&rend, isready, 0);
++	}
+ }
+ 
+ - (NSApplicationPresentationOptions) window:(NSWindow *)window
+@@ -592,6 +633,27 @@ - (BOOL)isFlipped
+ 	return YES;
+ }
+ 
++- (void)drawRect:(NSRect)dirtyRect
++{
++	if(!softwaredisplay || gscreen == nil)
++		return;
++	CGColorSpaceRef colors = CGColorSpaceCreateDeviceRGB();
++	size_t width = Dx(gscreen->r);
++	size_t height = Dy(gscreen->r);
++	size_t stride = gscreen->width * 4;
++	CGDataProviderRef provider = CGDataProviderCreateWithData(nil,
++		byteaddr(gscreen, gscreen->r.min), stride * height, nil);
++	CGImageRef image = CGImageCreate(width, height, 8, 32, stride, colors,
++		kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst,
++		provider, nil, false, kCGRenderingIntentDefault);
++	CGContextRef context = [[NSGraphicsContext currentContext] CGContext];
++	CGContextSetInterpolationQuality(context, kCGInterpolationNone);
++	CGContextDrawImage(context, NSRectToCGRect(self.bounds), image);
++	CGImageRelease(image);
++	CGDataProviderRelease(provider);
++	CGColorSpaceRelease(colors);
++}
++
+ static uint
+ evkey(uint v)
+ {
+@@ -1065,7 +1127,6 @@ - (id) init {
+ 	self.pixelFormat = MTLPixelFormatBGRA8Unorm;
+ 	self.framebufferOnly = YES;
+ 	self.opaque = YES;
+-
+ 	// We use a default transparent layer on top of the CAMetalLayer.
+ 	// This seems to make fullscreen applications behave.
+ 	{

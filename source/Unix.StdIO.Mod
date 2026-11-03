@@ -103,7 +103,7 @@ BEGIN
 			INC( ofs, ures );  DEC( size, ures );  INC( len, ures )
 		END;
 		IF ures < 0 THEN err := Unix.errno() END;
-	UNTIL (len >= min) OR ((ures <= 0) & (err # Unix.EINTR) & (err # 0));
+	UNTIL (len >= min) OR (ures = 0) OR ((ures < 0) & (err # Unix.EINTR));
 	IF len >= min THEN  res := Streams.Ok  ELSE  res := Streams.EOF  END;
 END ReceiveStdin;
 

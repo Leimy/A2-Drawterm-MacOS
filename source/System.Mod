@@ -21,7 +21,7 @@ TYPE
 
 	Module = POINTER TO RECORD
 		next: Module;
-		checked, imports: BOOLEAN;
+		checked, imports, freed: BOOLEAN;
 		m: Modules.Module
 	END;
 
@@ -40,7 +40,7 @@ BEGIN
 	NEW(first); first.next := NIL; last := first;
 	m := Modules.root;
 	WHILE m # NIL DO
-		NEW(c); c.checked := FALSE; c.imports := FALSE; c.m := m;
+		NEW(c); c.checked := FALSE; c.imports := FALSE; c.freed := FALSE; c.m := m;
 		c.next := NIL; last.next := c; last := c;
 		m := m.next
 	END;
@@ -268,32 +268,54 @@ END Load;
 PROCEDURE FreeDownTo*(context : Commands.Context); (** basemodule ~ *)
 VAR
 	modulename : ARRAY 128 OF CHAR;
-	root, m: Module; res: INTEGER;
+	root, m, client: Module; res: INTEGER; i: SIZE;
 	timer: Kernel.Timer; msg: ARRAY 64 OF CHAR;
 	nbrOfUnloadedModules : SIZE;
+	pending, progress, hasClient: BOOLEAN;
 BEGIN
 	context.arg.SkipWhitespace;
 	context.arg.String(modulename);
 	LockOberon;
 	NEW(timer); timer.Sleep(200); (* temporary workaround for race with System.FreeOberon *)
 	root := CopyModules();
-
 	nbrOfUnloadedModules := 0;
 	m := root;
 	WHILE m # NIL DO
-		IF Imports(root, m, modulename) THEN
-			IF TraceFreeDownTo IN Trace  THEN
-				context.out.String(m.m.name); context.out.Ln;
-			END;
-			Modules.FreeModule(m.m.name, res, msg);
-			IF res # 0 THEN
-				context.error.String(msg);
-			ELSE
-				INC(nbrOfUnloadedModules);
-			END
-		END;
+		m.imports := Imports(root, m, modulename);
 		m := m.next
 	END;
+	(* A linked image need not list its modules in dependency order. Unload
+	   every client before the modules it imports, even when refcnt is zero. *)
+	REPEAT
+		pending := FALSE; progress := FALSE;
+		m := root;
+		WHILE m # NIL DO
+			IF m.imports & ~m.freed THEN
+				pending := TRUE; hasClient := FALSE;
+				client := root;
+				WHILE (client # NIL) & ~hasClient DO
+					IF (client # m) & client.imports & ~client.freed & (client.m.module # NIL) THEN
+						i := 0;
+						WHILE (i < LEN(client.m.module)) & ~hasClient DO
+							hasClient := client.m.module[i] = m.m;
+							INC(i)
+						END
+					END;
+					client := client.next
+				END;
+				IF ~hasClient THEN
+					IF TraceFreeDownTo IN Trace THEN context.out.String(m.m.name); context.out.Ln END;
+					Modules.FreeModule(m.m.name, res, msg);
+					IF res = 0 THEN
+						m.freed := TRUE; progress := TRUE; INC(nbrOfUnloadedModules)
+					ELSE
+						context.error.String(msg); context.error.Ln
+					END
+				END
+			END;
+			m := m.next
+		END
+	UNTIL ~pending OR ~progress;
 	UnlockOberon; (* in case Oberon still running *)
 	context.out.String("Unloaded "); context.out.Int(nbrOfUnloadedModules, 0); context.out.String(" modules."); context.out.Ln;
 END FreeDownTo;
@@ -808,4 +830,3 @@ System.CollectGarbage ~
 System.ListModules -r ~
 
 System.ModuleState Heaps ~
-

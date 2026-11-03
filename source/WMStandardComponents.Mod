@@ -2354,10 +2354,11 @@ TYPE
 		END Init;
 
 		PROCEDURE RecacheProperties*;
-		VAR align: SIGNED32;
+		VAR align: SIGNED32; manager: WMWindowManager.WindowManager;
 		BEGIN
 			RecacheProperties^;
 			align := alignment.Get();
+			manager := WMWindowManager.GetDefaultManager();
 			IF (align = WMComponents.AlignRight) OR (align = WMComponents.AlignLeft) THEN
 				SetPointerInfo(manager.pointerLeftRight)
 			ELSIF (align = WMComponents.AlignBottom) OR (align = WMComponents.AlignTop) THEN
@@ -2980,7 +2981,6 @@ TYPE
 	END ImagePanel;
 
 VAR
-	manager : WMWindowManager.WindowManager;
 	blinker-: Blinker;
 
 	(* global strings *)
@@ -3628,7 +3628,6 @@ END Cleanup;
 BEGIN
 	NEW(blinker);
 	Modules.InstallTermHandler(Cleanup);
-	manager := WMWindowManager.GetDefaultManager();
 	InitStrings;
 	InitPrototypes;
 END WMStandardComponents.

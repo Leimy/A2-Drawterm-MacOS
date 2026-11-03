@@ -173,5 +173,8 @@ END Cleanup;
 
 BEGIN
 	Modules.InstallTermHandler(Cleanup);
-	default := NIL; Install
+	default := NIL;
+	#IF ~AARCH64 THEN
+		Install
+	#END
 END OberonInput.

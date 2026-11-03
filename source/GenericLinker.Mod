@@ -412,7 +412,8 @@ VAR
 				FOR i := 0 TO pattern.patterns-1 DO
 					INC(nobits,pattern.pattern[i].bits);
 				END;
-				remainder := ObjectFile.Bits(ASH(address,-nobits));
+				(* Relative displacements are signed even though Address is unsigned. *)
+				remainder := ObjectFile.Bits(ASH(SYSTEM.VAL(SIZE,address),-nobits));
 
 				IF  (nobits <32) & ((remainder > 0) OR (remainder < -1)) THEN
 					IF pattern.mode = ObjectFile.Relative THEN (* negative values allowed *)
@@ -436,7 +437,11 @@ VAR
 				IF pattern.mode = ObjectFile.Relative THEN
 					DEC(address,target)
 				END;
-				address := ASH (address, pattern.scale);
+				IF pattern.mode = ObjectFile.Relative THEN
+					address := Address(ASH(SYSTEM.VAL(SIZE,address), pattern.scale))
+				ELSE
+					address := ASH(address, pattern.scale)
+				END;
 				CheckBits(pattern, patch.offset);
 				FOR j := 0 TO pattern.patterns-1 DO PatchPattern(pattern.pattern[j]) END;
 			END ApplyPatch;

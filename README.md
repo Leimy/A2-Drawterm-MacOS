@@ -1,5 +1,10 @@
 ## Active Object System (AOS aka A2) git repository (from 9.12.2022)
 
+An experimental native Apple Silicon desktop port is documented in
+[RELEASE-DARWIN-AARCH64.md](RELEASE-DARWIN-AARCH64.md). It was developed with
+substantial assistance from OpenAI Codex under the direction and testing of an
+Active Oberon enthusiast; it is an independent preview, not an ETH release.
+
 In order to run A2 on your Windows- or Linux-based system, clone this repository and unzip the appropriate binary within the repository. Example (Linux, AMD64):
 ```
 git clone https://gitlab.inf.ethz.ch/felixf/oberon.git

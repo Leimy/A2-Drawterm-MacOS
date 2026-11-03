@@ -605,8 +605,10 @@ BEGIN
 	DoAddPlatform("TRM","-b=TRM --objectFile=Generic --metaData=simple --objectFileExtension=.GofT --symbolFileExtension=.SymT --define=TRM");
 	DoAddPlatform("TRMI","-b=TRM --objectFile=Intermediate --metaData=simple --objectFileExtension=.IroT --symbolFileExtension=.IrsT --define=TRM");
 	DoAddPlatform("ARMA2","-b=ARM --mergeSections --define=ARM --objectFileExtension=.Gof --symbolFileExtension=.Sym");
-	DoAddPlatform("UnixARM","-b=ARM --useFPU32 --useFPU64 --mergeSections --traceModule=Trace --objectFileExtension=.GofA --symbolFileExtension=.SymA --trackLeave --preciseGC --writeBarriers --cellsAreObjects --platformCC=C --define=UNIX,ARM");
-	DoAddPlatform("Unix32","-b=AMD --bits=32 --mergeSections --traceModule=Trace --objectFileExtension=.GofU --symbolFileExtension=.SymU --trackLeave --preciseGC --writeBarriers --cellsAreObjects --platformCC=C --define=UNIX,I386");
+		DoAddPlatform("UnixARM","-b=ARM --useFPU32 --useFPU64 --mergeSections --traceModule=Trace --objectFileExtension=.GofA --symbolFileExtension=.SymA --trackLeave --preciseGC --writeBarriers --cellsAreObjects --platformCC=C --define=UNIX,ARM");
+		DoAddPlatform("UnixAArch64","-b=AArch64 --mergeSections --traceModule=Trace --objectFileExtension=.GofAa --symbolFileExtension=.SymAa --trackLeave --preciseGC --writeBarriers --cellsAreObjects --platformCC=C --define=UNIX,AARCH64");
+		DoAddPlatform("DarwinA2","-b=AArch64 --mergeSections --metaData=full --objectFileExtension=.GofAa --symbolFileExtension=.SymAa --define=UNIX,AARCH64,DESKTOP");
+		DoAddPlatform("Unix32","-b=AMD --bits=32 --mergeSections --traceModule=Trace --objectFileExtension=.GofU --symbolFileExtension=.SymU --trackLeave --preciseGC --writeBarriers --cellsAreObjects --platformCC=C --define=UNIX,I386");
 	DoAddPlatform("Unix64","-b=AMD --bits=64 --mergeSections --traceModule=Trace --objectFileExtension=.GofUu --symbolFileExtension=.SymUu --trackLeave --preciseGC --writeBarriers --cellsAreObjects --platformCC=C --define=UNIX,AMD64");
 
 	SetupDefaults;

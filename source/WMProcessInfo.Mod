@@ -263,8 +263,8 @@ TYPE
 
 				(* CPU% - 2 *)
 				Objects.GetCpuCycles(processes[i], cycles, FALSE);
-				t0 := cycles[0];
-				Strings.IntToStr(SHORT ((t0 * 100) DIV t1), str);SetText(i, 2, str);
+				t0 := MAX(0, MIN(cycles[0], t1));
+				Strings.IntToStr(SHORT ((t0 * 100) DIV MAX(1, t1)), str); SetText(i, 2, str);
 
 
 				(* priority - 3 *)
@@ -275,7 +275,7 @@ TYPE
 
 				(* PC - 5 *)
 				relpc := pc;
-				IF (mod # NIL) & (mod.code # NIL) THEN DEC(relpc, ADDRESSOF(mod.code[0])) END;
+				IF (mod # NIL) & (mod.code # NIL) THEN DEC(relpc, Modules.CodeAddress(mod)) END;
 				Strings.IntToStr(SIGNED32(relpc), str); SetText(i, 5, str);
 
 				(* active object type - 6 *)
@@ -629,4 +629,3 @@ BEGIN
 END WMProcessInfo.
 
 System.Free WMProcessInfo ~
-

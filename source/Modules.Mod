@@ -122,6 +122,8 @@ TYPE
 			flags*: SET;	 (* e.g. compilation flags *)
 			crc*: SIGNED32;
 			init, published: BOOLEAN;
+			codeBase*: ADDRESS; (* exact executable range within the GC-owned code array *)
+			codeSize*: SIZE;
 
 		#IF ~COOP THEN
 			PROCEDURE FindRoots*;	(* override *)
@@ -168,6 +170,22 @@ PROCEDURE Halt(CONST reason: ARRAY OF CHAR);
 BEGIN
 	HALT(999);
 END Halt;
+
+PROCEDURE CodeAddress*(module: Module): ADDRESS;
+BEGIN
+	IF module.codeBase # 0 THEN RETURN module.codeBase END;
+	IF (module.code # NIL) & (LEN(module.code) > 0) THEN
+		RETURN ADDRESSOF(module.code[0])
+	END;
+	RETURN 0
+END CodeAddress;
+
+PROCEDURE CodeLength*(module: Module): SIZE;
+BEGIN
+	IF module.codeSize # 0 THEN RETURN module.codeSize END;
+	IF module.code # NIL THEN RETURN LEN(module.code) END;
+	RETURN 0
+END CodeLength;
 
 
 PROCEDURE AddLoader*(CONST ext: ARRAY OF CHAR; proc: LoaderProc);
@@ -235,7 +253,7 @@ BEGIN
 		Unregister(m);
 		m.published := TRUE;
 		m.next := root; root := m;
-		m.refcnt := 0;
+		(* Imports may already have counted this module before it was published. *)
 		SortExceptionTable(m.exTable);
 		SortProcedureDescs(m.procTable);
 
@@ -266,8 +284,9 @@ BEGIN
 				Initialize(module.module[import]);
 			END
 		END;
-		IF (module.code # NIL) & (LEN(module.code) > 0)  THEN
-			Machine.FlushDCacheRange(ADDRESSOF(module.code[0]), LEN(module.code));
+		IF CodeLength(module) > 0 THEN
+			Machine.FlushDCacheRange(CodeAddress(module), CodeLength(module));
+			Machine.InvalidateICacheRange(CodeAddress(module), CodeLength(module))
 		END;
 		IF module.body # NIL THEN
 			module.body
@@ -671,8 +690,8 @@ BEGIN
 		IF m.term # NIL THEN	(* call termination handler *)
 			term := m.term; m.term := NIL; term	(* may trap *)
 		END;
-		IF m.code # NIL THEN
-			Heaps.CleanupModuleFinalizers(ADDRESSOF(m.code[0]), LEN(m.code), m.name)
+		IF CodeLength(m) > 0 THEN
+			Heaps.CleanupModuleFinalizers(CodeAddress(m), CodeLength(m), m.name)
 		END;
 	END;
 	res := Ok; msg[0] := 0X;
@@ -691,9 +710,11 @@ BEGIN
 			IF m.ptrAdr # NIL THEN
 				FOR i := 0 TO LEN(m.ptrAdr)-1 DO SYSTEM.PUT (m.ptrAdr[i], NIL) END;
 			END;
-			IF ClearCode & (m.code # NIL) THEN
-				FOR i := 0 TO LEN(m.code)-1 DO m.code[i] := 0CCX END
-			END;
+			#IF ~AARCH64 THEN
+				IF ClearCode & (m.code # NIL) THEN
+					FOR i := 0 TO LEN(m.code)-1 DO m.code[i] := 0CCX END
+				END;
+			#END
 			(* remove references to module data *)
 			m.published := FALSE;
 			m.entry := NIL; m.command := NIL; m.ptrAdr := NIL;
@@ -733,8 +754,8 @@ BEGIN
 		(* clean up finalizers *)
 		m := root;
 		WHILE m # NIL DO
-			IF (m.code # NIL) & (LEN(m.code)>0) THEN
-				Heaps.CleanupModuleFinalizers(ADDRESSOF(m.code[0]), LEN(m.code), m.name)
+			IF CodeLength(m) > 0 THEN
+				Heaps.CleanupModuleFinalizers(CodeAddress(m), CodeLength(m), m.name)
 			END;
 			m := m.next
 		END;
@@ -945,4 +966,3 @@ END Init;
 BEGIN
 	Init;
 END Modules.
-

@@ -12,8 +12,6 @@ CONST
 	DefaultWidth = 1024;
 	DefaultHeight = 768;
 
-	AlphaCursor = 10;
-
 	KeyBufSize = 64;
 
 	Flip = FALSE;
@@ -62,6 +60,11 @@ TYPE
 			IF input # NIL THEN input.timer.Wakeup END	(* have to check, because upcalls to us can start immediately *)
 		END PointerMove;
 
+		PROCEDURE PointerDown*(x, y : SIZE; keys : SET);
+		BEGIN
+			PointerMove(x, y, keys)
+		END PointerDown;
+
 		PROCEDURE WheelMove*(dz : SIZE); (*fof*)
 		BEGIN
 			IF dz > 0 THEN
@@ -85,7 +88,6 @@ TYPE
 			IF flags * Inputs.Shift # {} THEN INCL(keys, Inputs.SHIFT) END;
 			IF flags * Inputs.Ctrl # {} THEN INCL(keys, Inputs.CTRL) END;
 			IF flags * Inputs.Alt # {} THEN INCL(keys, Inputs.ALT) END;
-			TRACE(keysym); 
 			IF keysym = Inputs.KsBackSpace THEN ch := 7FX; (* delete *) 
 			ELSIF keysym = Inputs.KsDelete THEN ch := 0A1X; (* delete *) 
 			ELSIF keysym = Inputs.KsUp THEN ch := 0C1X; (* up *) 
@@ -126,8 +128,10 @@ TYPE
 				IF lastCtrl THEN INCL(curKeys, 1) ELSE EXCL(curKeys, 1) END;
 				IF input # NIL THEN input.timer.Wakeup END
 			ELSE
-				InsertKey(CHR(ucs), keysym(SIGNED32), flags);
-				IF input # NIL THEN input.timer.Wakeup END
+				IF ~(Inputs.Release IN flags) THEN
+					InsertKey(CHR(ucs), keysym(SIGNED32), flags);
+					IF input # NIL THEN input.timer.Wakeup END
+				END
 			END;
 		END KeyEvent;
 
@@ -332,7 +336,7 @@ TYPE
 		END Copy;
 
 		PROCEDURE &Init*(name : ARRAY OF CHAR; w, h, x, y : SIGNED32);
-		VAR res : INTEGER; ptr : WM.PointerInfo; pixel : Raster.Pixel; mode : Raster.Mode;
+		VAR res : INTEGER;
 			s : ARRAY 16 OF CHAR;
 		BEGIN
 			ml := MAX(SIGNED32); mt := MAX(SIGNED32); mr := MIN(SIGNED32); mb := MIN(SIGNED32);
@@ -350,14 +354,8 @@ TYPE
 				| Raster.bgra8888 :	format := Displays.color8888
 			END;
 			IF ~Flip THEN
-				NEW(ptr); ptr.hotX := 2; ptr.hotY := 2;
-				NEW(ptr.img); Raster.Create(ptr.img, 4, 4, Raster.BGRA8888);
-				Raster.SetRGBA(pixel, 255, 255, 255, AlphaCursor);
-				Raster.InitMode(mode, Raster.srcCopy);
-				Raster.Fill(ptr.img, 0, 0, 4, 4, pixel, mode);
-				Raster.SetRGBA(pixel, 0, 0, 0, AlphaCursor);
-				Raster.Fill(ptr.img, 1, 1, 3, 3, pixel, mode);
-				disp.SetPointerInfo(ptr)
+				(* Classic Oberon paints its own cursor inside this window. *)
+				INCL(disp.flags, WM.FlagNoPointer)
 			END;
 			IF Flip THEN
 				disp.SetTitle(Strings.NewString("Oberon for Bluebottle down under"))

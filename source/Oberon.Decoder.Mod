@@ -2595,7 +2595,7 @@ MODULE Decoder IN Oberon;	(** non-portable *) (* NM 2.3.93 / 26.10.93 *)
 		WriteString ("  sb:              "); WriteDWHex (mod.sb); WriteLn;
 		datasize := mod.sb - ADDRESSOF(mod.data[0]);
 		constsize := mod.sb - ADDRESSOF(mod.data[0])+ LEN(mod.data);
-		codesize := LEN(mod.code);
+		codesize := Modules.CodeLength(mod);
 		refsize := LEN(mod.refs);
 		WriteString (dataSizeStr); WriteDWHex (datasize); WriteLn;
 		WriteString (constSizeStr); WriteDWHex (constsize); WriteLn;
@@ -2619,8 +2619,8 @@ MODULE Decoder IN Oberon;	(** non-portable *) (* NM 2.3.93 / 26.10.93 *)
 		i:= 0;
 		WHILE i < LEN(mod.entries) DO
 			Tab(Pos1); WriteDWHex(mod.entries[i]);
-			WriteString(" "); WriteDWHex(mod.entries[i] - ADDRESSOF(mod.code[0]));
-			WriteString(" "); WriteProc(mod.entries[i] - ADDRESSOF(mod.code[0])); WriteLn;
+			WriteString(" "); WriteDWHex(mod.entries[i] - Modules.CodeAddress(mod));
+			WriteString(" "); WriteProc(mod.entries[i] - Modules.CodeAddress(mod)); WriteLn;
 			INC(i)
 		END;
 		WriteLn;
@@ -2645,7 +2645,7 @@ MODULE Decoder IN Oberon;	(** non-portable *) (* NM 2.3.93 / 26.10.93 *)
 		Texts.SetFont(W, titleFont); WriteString ("TypeDescriptors:"); WriteLn; Texts.SetFont(W, defaultFont);
 		i := 0;
 		WHILE i < LEN(mod.tdescs) DO
-			DumpType (mod.tdescs[i], ADDRESSOF(mod.code[0])); WriteLn;
+			DumpType (mod.tdescs[i], Modules.CodeAddress(mod)); WriteLn;
 			INC (i)
 		END;
 
@@ -2667,7 +2667,7 @@ MODULE Decoder IN Oberon;	(** non-portable *) (* NM 2.3.93 / 26.10.93 *)
 		(* code section *)
 		Texts.SetFont(W, titleFont); WriteString (CodeStr); WriteLn; Texts.SetFont(W, defaultFont);
 		ReadAdr := ADDRESSOF (mod.code[0]);
-		Dump (LEN(mod.code)); WriteLn; WriteLn;
+		Dump (Modules.CodeLength(mod)); WriteLn; WriteLn;
 
 		Texts.SetFont(W, titleFont); WriteString ("import: not implemented yet"); WriteLn; Texts.SetFont(W, defaultFont);
 		Texts.SetFont(W, titleFont); WriteString ("struct: not implemented yet"); WriteLn; Texts.SetFont(W, defaultFont);

@@ -191,14 +191,19 @@ TYPE
 
 	END HashTableIntAny;
 
-	Data=RECORD size, alignment: SIZE; bytes: Modules.Bytes; address: ADDRESS; END;
+	Data=RECORD
+		size, alignment: SIZE;
+		bytes: Modules.Bytes;
+		base, address: ADDRESS;
+		executable: BOOLEAN
+	END;
 
 	Arrangement* = OBJECT (GenericLinker.Arrangement);
 	VAR
 		code, data: Data;
 
 		PROCEDURE & InitArrangement;
-		BEGIN InitData(code); InitData(data);
+		BEGIN InitData(code, TRUE); InitData(data, FALSE);
 		END InitArrangement;
 
 		PROCEDURE Preallocate*(CONST section: ObjectFile.Section);
@@ -226,19 +231,30 @@ TYPE
 		END Allocate;
 
 		PROCEDURE Patch* (pos, value: GenericLinker.Address; offset, bits, unit: ObjectFile.Bits);
-		VAR char: CHAR;
+		VAR char: CHAR; byte, mask: SIGNED32; bit: ObjectFile.Bits;
 		BEGIN
-			ASSERT(bits MOD 8 = 0);
 			ASSERT(unit = 8);
 
 			WHILE bits > 0 DO
-				char := CHR(value);
-				SYSTEM.PUT(pos, char);
-				value := value DIV 256;
-				DEC(bits,8); INC(pos,1);
+				bit := offset MOD 8;
+				SYSTEM.GET(pos + offset DIV 8, char);
+				byte := ORD(char); mask := ASH(1, bit);
+				IF ODD(value) THEN
+					IF ~ODD(byte DIV mask) THEN INC(byte, mask) END
+				ELSIF ODD(byte DIV mask) THEN
+					DEC(byte, mask)
+				END;
+				SYSTEM.PUT(pos + offset DIV 8, CHR(byte));
+				value := value DIV 2;
+				DEC(bits); INC(offset)
 			END;
 
 		END Patch;
+
+		PROCEDURE PublishCode*(): BOOLEAN;
+		BEGIN
+			RETURN Machine.PublishCode(code.base, code.size)
+		END PublishCode;
 
 	END Arrangement;
 
@@ -412,9 +428,10 @@ VAR
 	moduleList: ModuleList;
 	InternalModuleName: StringPool.Index;
 
-	PROCEDURE InitData(VAR data: Data);
+	PROCEDURE InitData(VAR data: Data; executable: BOOLEAN);
 	BEGIN
-		data.address := 0; data.size := 0; data.alignment := 0; data.bytes := NIL;
+		data.base := 0; data.address := 0; data.size := 0; data.alignment := 0;
+		data.bytes := NIL; data.executable := executable
 	END InitData;
 
 
@@ -432,14 +449,29 @@ VAR
 	END DoPreallocate;
 
 	PROCEDURE DoAllocate(CONST section: ObjectFile.Section; VAR data: Data): ADDRESS;
-	VAR address: ADDRESS; size: SIZE;
+	VAR address, raw: ADDRESS; size, allocation: SIZE;
 	BEGIN
-		IF (data.bytes = NIL) OR (LEN(data.bytes) # data.size + data.alignment) THEN
-			NEW(data.bytes, data.size + data.alignment);
-			data.address := ADDRESSOF(data.bytes[0]);
-			IF data.alignment > 0 THEN
-				INC(data.address, (-data.address) MOD data.alignment);
-			END;
+		allocation := data.size + data.alignment;
+		#IF AARCH64 THEN
+			IF data.executable THEN INC(allocation, 3 * Machine.PageSize) END;
+		#END
+		IF (data.bytes = NIL) OR (LEN(data.bytes) # allocation) THEN
+			NEW(data.bytes, allocation);
+			raw := ADDRESSOF(data.bytes[0]);
+			#IF AARCH64 THEN
+				IF data.executable THEN
+					data.base := raw + Machine.PageSize;
+					INC(data.base, (-data.base) MOD Machine.PageSize)
+				ELSE
+			#END
+					data.base := raw;
+					IF data.alignment > 0 THEN
+						INC(data.base, (-data.base) MOD data.alignment)
+					END;
+			#IF AARCH64 THEN
+				END;
+			#END
+			data.address := data.base
 		END;
 
 		IF section.alignment > 0 THEN
@@ -460,7 +492,7 @@ VAR
 		module: Modules.Module; heapBlockAdr,moduleAdr: ADDRESS;
 		sname: ObjectFile.SectionName;
 		Log, debug: Streams.Writer;
-		i: SIZE;
+		i: SIZE; codeReady: BOOLEAN;
 	BEGIN
 		file := Files.Old(fileName);
 
@@ -489,8 +521,10 @@ VAR
 			IF ~linker.error THEN linker.EnterBlocks END;
 			IF ~linker.error THEN linker.Resolve END;
 			IF ~linker.error THEN linker.Link END;
+			codeReady := ~linker.error;
+			IF codeReady THEN codeReady := arrangement.PublishCode() END;
 			(*D.Update;*)
-			IF ~linker.error THEN
+			IF codeReady THEN
 				IF TraceLoading THEN Trace.String("linking done"); Trace.Ln END;
 				FOR i := 0 TO linker.numberModuleBlocks-1 DO
 					moduleAdr := linker.moduleBlock[i].address;
@@ -502,6 +536,8 @@ VAR
 					module := SYSTEM.VAL(Modules.Module,moduleAdr);
 					module.data := arrangement.data.bytes;
 					module.code := arrangement.code.bytes;
+					module.codeBase := arrangement.code.base;
+					module.codeSize := arrangement.code.size;
  					module.sb := 0;
 					(*
 						careful: when GC uses a heuristic for pointer detection on the stack, it will not
@@ -512,7 +548,13 @@ VAR
 					Modules.Initialize(module);
 				END;
 				Log.Update;
-			ELSE module := NIL; res := LinkerError; stringWriter.Update; stringWriter.Get(msg);
+			ELSE
+				module := NIL; res := LinkerError;
+				IF linker.error THEN
+					stringWriter.Update; stringWriter.Get(msg)
+				ELSE
+					COPY("could not publish executable code", msg)
+				END
 
 			END;
 		ELSE
@@ -552,4 +594,3 @@ VAR
 		NEW(moduleList);
 		Install;
 	END Loader.
-

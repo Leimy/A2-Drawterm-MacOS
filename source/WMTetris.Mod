@@ -1,7 +1,7 @@
 MODULE WMTetris;	(** AUTHOR "TF"; PURPOSE "Tetris with semitransparent blocks"; *)
 
 IMPORT
-	Modules, Kernel, Random, Strings,
+	Modules, Kernel, KernelLog, Inputs, Random, Strings,
 	Raster, WMRasterScale, WMRectangles, WMGraphics, WMGraphicUtilities,
 	WMMessages, WM := WMWindowManager, WMDialogs;
 
@@ -292,6 +292,7 @@ TYPE
 		VAR ignore : BOOLEAN;
 			rotBlock : Block;
 		BEGIN {EXCLUSIVE}
+			IF Inputs.Release IN flags THEN RETURN END;
 			IF (state >= Terminating) THEN
 				RETURN;
 			ELSIF (state = Initialized) THEN
@@ -507,6 +508,7 @@ PROCEDURE Open*;
 VAR winstance : Window;
 BEGIN
 	NEW(winstance, TRUE);
+	KernelLog.String("WMTetris opened"); KernelLog.Ln
 END Open;
 
 PROCEDURE IncCount;

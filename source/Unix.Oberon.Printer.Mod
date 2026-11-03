@@ -193,7 +193,7 @@ VAR
 
 	PROCEDURE GetMetric*( fnt: Fonts.Font ): Fonts.Font;
 	BEGIN
-		RETURN current.GetMetric( current, fnt )
+		IF current # NIL THEN RETURN current.GetMetric( current, fnt ) ELSE RETURN NIL END
 	END GetMetric;
 
 

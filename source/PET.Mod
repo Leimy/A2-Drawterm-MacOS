@@ -75,8 +75,16 @@ CONST
 	(* Compiler *)
 	DefaultCompilerName = "Fox";
 	DefaultCompilerCaption = "Compile";
+	#IF AARCH64 THEN
+	DefaultCompilerOptions = "-p=DarwinA2 --warnings";
+	#ELSE
 	DefaultCompilerOptions = "-b=AMD --warnings";
+	#END
+	#IF AARCH64 THEN
+	DefaultCompilerLoadModule = "TextCompiler";
+	#ELSE
 	DefaultCompilerLoadModule = "Compiler";
+	#END
 	DefaultCompilerFileExtension = "MOD";
 	DefaultCompilerFindPC = TRUE;
 

@@ -160,6 +160,9 @@ TYPE
 				pages[i] := NIL
 			END;
 			mask := MenuFilePrefix;
+			#IF AARCH64 THEN
+			mask := "NativeMenuPage";
+			#END;
 			i := Strings.Length(mask);
 			Strings.Append(mask, "*.XML");
 			enumerator.Open(mask, {});
@@ -259,16 +262,27 @@ BEGIN
 	IF w # NIL THEN w.LoadPages END;
 END Open;
 
+PROCEDURE Relocate*;
+VAR view : WM.ViewPort;
+BEGIN {EXCLUSIVE}
+	IF window # NIL THEN
+		view := WM.GetDefaultView();
+		IF view # NIL THEN
+			window.manager.SetWindowPos(window, 0, view.height0 - window.GetHeight())
+		END
+	END
+END Relocate;
+
 PROCEDURE Cleanup;
 BEGIN {EXCLUSIVE}
 	KernelLog.String("Cleanup"); KernelLog.Ln;
 	(* removal must be done in all cases to avoid system freeze *)
-	manager.RemoveMessagePreview(MessagePreview);
+	IF manager # NIL THEN manager.RemoveMessagePreview(MessagePreview) END;
 	IF window # NIL THEN window.Close  END;
 END Cleanup;
 
 BEGIN
-	manager := WM.GetDefaultManager();
+	(* The first window obtains the manager after the display is installed. *)
 	Modules.InstallTermHandler(Cleanup)
 END MainMenu.
 

@@ -54,8 +54,8 @@ BEGIN
 		(* get & sort - assume module list does not change during this loop *)
 	m := Modules.root; n := 0;
 	WHILE m # NIL DO
-		lowAdr := ADDRESSOF(m.code[0]);
-		highAdr := lowAdr + LEN(m.code);
+		lowAdr := Modules.CodeAddress(m);
+		highAdr := lowAdr + Modules.CodeLength(m);
 			(* insert sort *)
 		i := 0; WHILE (i # n) & (lowAdr > a[i].lowAdr) DO INC(i) END;
 		FOR j := n-1 TO i BY -1 DO a[j+1] := a[j] END;
@@ -189,7 +189,7 @@ PROCEDURE GetProc(mod: Modules.Module;  VAR pc: ADDRESS;  VAR procname: ARRAY OF
 VAR refpos, i: SIZE; refs: Bytes; ch: CHAR;
 BEGIN
 	refpos := -1;
-	DEC(pc, ADDRESSOF(mod.code[0]));
+	DEC(pc, Modules.CodeAddress(mod));
 	refs := SYSTEM.VAL(Bytes, mod.refs);
 	IF (refs # NIL) & (LEN(mod.refs) # 0) THEN
 		refpos := FindProc(refs, SYSTEM.VAL (SIGNED32, pc));

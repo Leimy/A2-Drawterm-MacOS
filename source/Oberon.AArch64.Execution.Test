@@ -1,0 +1,56 @@
+positive: nil pointer to record is not an extended type
+
+	MODULE Test;
+	TYPE R0 = RECORD END; P0 = POINTER TO R0;
+	TYPE R1 = RECORD (R0) END; P1 = POINTER TO R1;
+	VAR p0: P0;
+	BEGIN p0 := NIL; ASSERT(~(p0 IS P1))
+	END Test.
+
+positive: returned nil pointer to record is not an extended type
+
+	MODULE Test;
+	TYPE R0 = RECORD END; P0 = POINTER TO R0;
+	TYPE R1 = RECORD (R0) END; P1 = POINTER TO R1;
+	PROCEDURE Function(): P0;
+	BEGIN RETURN NIL END Function;
+	BEGIN ASSERT(~(Function() IS P1))
+	END Test.
+
+positive: nil object is not an extended type
+
+	MODULE Test;
+	TYPE O0 = OBJECT END O0;
+	TYPE O1 = OBJECT (O0) END O1;
+	VAR o0: O0;
+	BEGIN o0 := NIL; ASSERT(~(o0 IS O1))
+	END Test.
+
+positive: returned nil object is not an extended type
+
+	MODULE Test;
+	TYPE O0 = OBJECT END O0;
+	TYPE O1 = OBJECT (O0) END O1;
+	PROCEDURE Function(): O0;
+	BEGIN RETURN NIL END Function;
+	BEGIN ASSERT(~(Function() IS O1))
+	END Test.
+
+positive: nil base object is not an extended type
+
+	MODULE Test;
+	TYPE O0 = OBJECT;
+	TYPE O1 = OBJECT (O0) END O1;
+	VAR o0: O0;
+	BEGIN o0 := NIL; ASSERT(~(o0 IS O1))
+	END Test.
+
+positive: returned nil base object is not an extended type
+
+	MODULE Test;
+	TYPE O0 = OBJECT;
+	TYPE O1 = OBJECT (O0) END O1;
+	PROCEDURE Function(): O0;
+	BEGIN RETURN NIL END Function;
+	BEGIN ASSERT(~(Function() IS O1))
+	END Test.

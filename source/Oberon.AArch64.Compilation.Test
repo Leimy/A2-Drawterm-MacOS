@@ -1,0 +1,20 @@
+positive: call an empty AArch64 inline procedure
+
+	MODULE Test;
+	IMPORT SYSTEM;
+	PROCEDURE -P;
+	CODE{SYSTEM.AArch64}
+	END P;
+	BEGIN P
+	END Test.
+
+positive: export AArch64 inline code referencing a local constant
+
+	MODULE Test;
+	IMPORT SYSTEM;
+	PROCEDURE -P*(): SIGNED64;
+	CONST constant = 16;
+	CODE{SYSTEM.AArch64}
+		MOV X0,constant
+	END P;
+	END Test.

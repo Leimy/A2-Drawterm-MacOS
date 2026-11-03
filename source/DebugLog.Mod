@@ -213,7 +213,7 @@ BEGIN
 	(* IF bp = 0 the previous PC is kept. This is the PC of the last PAF. *)
 
 	(* Compute module pc *)
-	DEC(pc, ADDRESSOF(module.code[0]));
+	DEC(pc, Modules.CodeAddress(module));
 	methadr := FindProc(module.refs, pc);
 
 	IF methadr # -1 THEN

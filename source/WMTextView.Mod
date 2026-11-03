@@ -5,7 +5,7 @@ IMPORT
 	WMGraphics, WMGraphicUtilities, WMMessages, WMComponents,
 	WMStandardComponents, Strings, WMDropTarget, Raster,
 	WMRectangles, WMWindowManager, WMProperties,
-	Commands, FileHandlers, Streams, WMPopups, FP1616,
+	Commands, FileHandlers, Streams, WMPopups, FP1616, HostClipboard,
 	WMPieMenu, WMEvents, UnicodeBidirectionality, PositionDebugging, ContextualDependency, D := Debugging;
 
 CONST
@@ -696,6 +696,7 @@ TYPE
 
 		(** Called whenever the cursor position changes *)
 		onCursorChanged* : PROCEDURE {DELEGATE};
+		onPieMenuPaste* : PROCEDURE {DELEGATE};
 
 		optimize* : BOOLEAN;
 
@@ -798,6 +799,7 @@ TYPE
 			commandCaller := NIL;
 			commandWriter := NIL;
 			onCursorChanged := NIL;
+			onPieMenuPaste := NIL;
 			(* Initialization of internal fields *)
 			optimize := FALSE;
 			piemenu := NIL;
@@ -824,6 +826,7 @@ TYPE
 
 			takesFocus.Set(TRUE);
 			needsTab.Set(TRUE);
+			manager := WMWindowManager.GetDefaultManager();
 			SetPointerInfo(manager.pointerText);
 		END Init;
 
@@ -3299,6 +3302,22 @@ TYPE
 			text.ReleaseWrite
 		END Paste;
 
+		PROCEDURE PasteFromHostClipboard;
+		VAR clipboard: Texts.UnicodeText; res: INTEGER;
+		BEGIN
+			NEW(clipboard); clipboard.AcquireWrite;
+			HostClipboard.Get(clipboard, res);
+			IF (res = HostClipboard.Ok) & (clipboard.GetLength() > 0) THEN
+				text.AcquireWrite;
+				IF selection.b - selection.a # 0 THEN DeleteSelection END;
+				text.CopyFromText(clipboard, 0, clipboard.GetLength(), cursor.GetPosition());
+				text.ReleaseWrite
+			ELSE
+				Paste
+			END;
+			clipboard.ReleaseWrite
+		END PasteFromHostClipboard;
+
 		PROCEDURE SelectAll*;
 		BEGIN
 			Acquire; (* protect cursor *)
@@ -3914,7 +3933,7 @@ TYPE
 
 		PROCEDURE PieMenuPaste(sender, data: ANY);
 		BEGIN
-			Paste;
+			IF onPieMenuPaste # NIL THEN onPieMenuPaste ELSE PasteFromHostClipboard END;
 		END PieMenuPaste;
 
 		PROCEDURE ShowContextMenu*(x, y: SIZE);
@@ -4413,5 +4432,4 @@ BEGIN
 	Modules.InstallTermHandler(Cleanup);
 	InitStrings;
 	InitPrototypes;
-	manager := WMWindowManager.GetDefaultManager();
 END WMTextView.
