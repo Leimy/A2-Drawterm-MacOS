@@ -8,8 +8,9 @@ For a first run on another Apple Silicon Mac, copy the ZIP and its adjacent
 `.zip.sha256` file to that Mac. In Terminal, verify and extract them:
 
 ```sh
-shasum -a 256 -c A2-Darwin-arm64-preview-2026-11-03.zip.sha256
-unzip A2-Darwin-arm64-preview-2026-11-03.zip
+archive=A2-Darwin-arm64-preview-2026-11-03-apps.zip
+shasum -a 256 -c "$archive.sha256"
+unzip "$archive"
 cd A2-Darwin-arm64-preview
 sh ./verify.sh --check
 sh ./verify.sh --launch
