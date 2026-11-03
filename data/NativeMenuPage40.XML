@@ -92,4 +92,11 @@
       <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMKeyCode.Open</CommandString></Properties></Standard:SystemCommand>
     </Standard:Button>
   </Standard:Panel>
+  <Standard:Panel>
+    <Properties><Alignment>1</Alignment><Bounds><Width>180</Width></Bounds></Properties>
+    <Standard:Button>
+      <Properties><Caption>Interpreter shell</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMInterpreterShell.Open</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
+  </Standard:Panel>
 </Standard:Panel>

@@ -57,9 +57,15 @@ After recompiling a loaded module, run `System.Free NativeDesktopHello` before
 running its new version.
 
 The native menu also includes **Development > PET editor**, **Hex editor**,
-and **Key codes**, plus **Tools > Color picker** and **Text styles**. Search,
-archives, diff, event logs, inspection, repositories, character input, and
-scribbling are available as well. To edit and compile the example in PET, copy it into your launch
+**Key codes**, and **Interpreter shell**, plus **Tools > Color picker** and
+**Text styles**. **Graphics** offers an image viewer, graph demos, a Gfx
+spiral, a slideshow, a backdrop chooser, drawing overlay, on-screen message,
+and module state viewer. **System > Task scheduler** opens the scheduler UI.
+Search, archives, diff, event logs, inspection, repositories, character input,
+and scribbling are available as well. The slideshow uses the bundled
+`RetoWMSlideshow.XML`; the image viewer opens the bundled `mars.png`.
+
+To edit and compile the example in PET, copy it into your launch
 directory, run `PET.Open NativeDesktopHello.Mod` in BlueShell, then click
 **Compile**. PET's Fox compiler uses the DarwinA2 AArch64 target here.
 
