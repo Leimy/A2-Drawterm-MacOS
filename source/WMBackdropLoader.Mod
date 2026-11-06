@@ -98,7 +98,7 @@ BEGIN
 		windows := windows.nextINchain
 	ELSE
 		winstance := windows;
-		WHILE (winstance # NIL) & (winstance.next # free) DO
+		WHILE (winstance # NIL) & (winstance.nextINchain # free) DO
 			winstance := winstance.nextINchain
 		END;
 		IF winstance # NIL THEN
@@ -134,5 +134,4 @@ END WMBackdropLoader.
 
 System.Free WMBackdropLoader Looks ~
 WMBackdropLoader.Open BackdropList.XML ~
-
 

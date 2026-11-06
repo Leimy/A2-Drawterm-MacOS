@@ -65,6 +65,9 @@ and module state viewer. **System > Task scheduler** opens the scheduler UI.
 Search, archives, diff, event logs, inspection, repositories, character input,
 and scribbling are available as well. The slideshow uses the bundled
 `RetoWMSlideshow.XML`; the image viewer opens the bundled `mars.png`.
+**Graphics > Backdrops** opens a picker; click an image name to apply it to the
+desktop. PNG, JPEG, and JP2 choices are bundled, as is `Wallpapers.txt` for the
+backdrop's Next action.
 
 **Tools > Web browser** opens A2's BimBrowser on a bundled welcome page. Its
 original HTML renderer can open local `file://` documents and plain `http://`

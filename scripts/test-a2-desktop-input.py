@@ -38,6 +38,8 @@ def main():
     parser.add_argument('--tetris-shutdown', action='store_true', help='start Tetris, then shut A2 down from the menu')
     parser.add_argument('--menu-app', choices=['tetris', 'oberon', 'log', 'clock', 'calendar', 'shell', 'files', 'tutorial', 'chinese-tutorial', 'pet', 'search', 'scribble', 'bunny', 'hex-editor', 'key-codes', 'color-picker', 'text-styles', 'image-viewer', 'graph-demos', 'drawing-overlay', 'on-screen-message', 'module-state', 'backdrops', 'gfx-spiral', 'slideshow', 'task-scheduler', 'performance', 'ftp-client', 'skin-editor', 'interpreter-shell', 'gui-builder', 'skin-chooser', 'desktop-icon', 'input-methods', 'language', 'window-switcher', 'web-browser'],
                         help='click a native A2 menu application and inspect the resulting window')
+    parser.add_argument('--backdrop-select', action='store_true',
+                        help='select Mars in the Backdrops picker and require the desktop background to change')
     parser.add_argument('--shell-command', help='type a command into BlueShell and wait for its effect')
     parser.add_argument('--paste-shell-command', action='store_true', help='paste --shell-command through drawterm /dev/snarf')
     parser.add_argument('--pie-shell-command', action='store_true', help='paste --shell-command through BlueShell pie menu')
@@ -61,6 +63,8 @@ def main():
         parser.error('choose one paste mode')
     if args.resize_menu and args.resize:
         parser.error('choose one resize mode')
+    if args.backdrop_select and args.menu_app != 'backdrops':
+        parser.error('--backdrop-select requires --menu-app backdrops')
     host, guest = socket.socketpair()
     env = os.environ.copy()
     core_dir = Path(args.core).resolve().parent
@@ -125,6 +129,7 @@ def main():
     if menu_app == 'files':
         tetris_events.extend([(80, 139, 0), (80, 139, 1), (80, 139, 0)])
     tetris_index = 0; tetris_initial = None; tetris_flushes = 0; tetris_sent_at = None
+    backdrop_index = 0; backdrop_pixel_before = None; backdrop_sent_at = None
     tetris_start_sent = False; tetris_game_initial = None; tetris_game_flushes = 0; tetris_game_at = None
     shell_text = ('\n' if args.paste_shell_command or args.pie_shell_command else args.shell_command + '\n') if args.shell_command else ''
     shell_typed = 0; shell_done = None; shell_pasted = False; shell_window_initial = None; pet_click_index = 0
@@ -276,9 +281,26 @@ def main():
                     raise RuntimeError(f'{menu_app} did not paint a window')
                 if menu_app == 'oberon' and pixels[(200 * screen_width + 200) * 3] < 200:
                     raise RuntimeError('Oberon viewer area is still blank')
-                if not play_tetris and not args.shell_command:
+                if not play_tetris and not args.shell_command and not args.backdrop_select:
                     print(f'PASS: {menu_app} menu command painted a window')
                     return
+            if args.backdrop_select and tetris_sent_at is not None and time.monotonic() - tetris_sent_at > 2 and backdrop_index < 3 and mouse_tag is not None and time.monotonic() >= next_event:
+                if backdrop_index == 0:
+                    sample = (300 * screen_width + 800) * 3
+                    backdrop_pixel_before = bytes(pixels[sample:sample + 3])
+                button = [0, 1, 0][backdrop_index]
+                event = ('m' + ''.join(f'{n:11d} ' for n in [350, 410, button, 7000 + backdrop_index * 300])).encode()
+                host.sendall(packet(117, mouse_tag, struct.pack('<I', len(event)) + event))
+                mouse_tag = None; backdrop_index += 1; next_event = time.monotonic() + 0.4
+                if backdrop_index == 3: backdrop_sent_at = time.monotonic()
+            if backdrop_sent_at is not None and time.monotonic() - backdrop_sent_at > 3:
+                sample = (300 * screen_width + 800) * 3
+                if bytes(pixels[sample:sample + 3]) == backdrop_pixel_before:
+                    raise RuntimeError('Backdrops picker did not change the desktop background')
+                if 'No decoder found' in output or 'could not be loaded' in output:
+                    raise RuntimeError('Backdrops picker could not load the selected image')
+                print('PASS: Backdrops picker changed the desktop background')
+                return
             if args.paste_shell_command and not shell_pasted and tetris_sent_at is not None and time.monotonic() - tetris_sent_at > 2 and keyboard_tag is not None and time.monotonic() >= next_event:
                 meta = chr(0xF868).encode('utf-8')
                 event = b'r' + meta + b'\0rv\0Rv\0R' + meta + b'\0'

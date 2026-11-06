@@ -474,6 +474,7 @@ VAR
 	PROCEDURE NumberImg(): SIGNED32;
 	VAR line: Files.FileName; r: Files.Reader; nr: SIGNED32;
 	BEGIN
+		nr := 0;
 		Files.OpenReader(r, f, 0);
 		WHILE (r.res = Streams.Ok) DO
 			r.Ln(line);
@@ -520,4 +521,3 @@ WMBackdrop.AddBackdropImage AosBackdrop.png 1280 0 ~
 (* install backdrop whose size is specified relative to the view port size *)
 WMBackdrop.AddBackdropImage --fullscreen BluebottlePic0.png ~
 WMBackdrop.AddBackdropImage --fullscreen BluebottlePic0.png -1 0 ~
-
