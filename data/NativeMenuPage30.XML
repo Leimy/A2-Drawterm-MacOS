@@ -29,5 +29,9 @@
         </Properties>
       </Standard:SystemCommand>
     </Standard:Button>
+    <Standard:Button>
+      <Properties><Caption>Bunny</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMBunny.Insert WMBunnyImages.tar://BunnyLinear.gif 8 40</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
   </Standard:Panel>
 </Standard:Panel>

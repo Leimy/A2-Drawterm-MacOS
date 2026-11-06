@@ -78,6 +78,11 @@ checks a local HTTP exchange through the browser and its drawterm desktop.
 **Customize** includes the GUI builder, skin chooser, and a command to add a
 configurable desktop icon. **Save screenshot** writes `A2Shot.bmp` in the
 directory from which you launched `a2`; **View screenshot** opens that file.
+It also includes the Skin Editor. **System > Performance** opens the performance
+monitor with the Unix CPU, memory, network, event, and self-monitoring plugins.
+Device statistics plugins are disabled in this hosted build. **Tools > FTP
+client** opens A2's FTP interface; connecting to an external FTP server has
+not yet been verified. **Demos > Bunny** displays the bundled animated GIF.
 The input-method selector offers Arabic, Armenian, Hebrew, Pinyin, Russian,
 Ukrainian, and Unicode entry; the language switcher and window switcher are
 also available from this page.

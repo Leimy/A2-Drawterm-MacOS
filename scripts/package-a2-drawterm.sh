@@ -23,6 +23,13 @@ mv -f "$loader_tmp" "$output/OberonLoader"
 mv -f "$drawterm_tmp" "$output/drawterm"
 mkdir -p "$output/data"
 cp -R "$repo/data/." "$output/data/"
+# Device statistics are unavailable in the hosted Unix runtime; the messages
+# plugin also requires WMMessages.Statistics, which this image does not enable.
+sed -e 's/name="WMPerfMonPluginMessages" value="TRUE"/name="WMPerfMonPluginMessages" value="FALSE"/' \
+    -e 's/name="WMPerfMonPluginDisks" value="TRUE"/name="WMPerfMonPluginDisks" value="FALSE"/' \
+    -e 's/name="WMPerfMonPluginUsb" value="TRUE"/name="WMPerfMonPluginUsb" value="FALSE"/' \
+    "$output/data/Configuration.XML" > "$output/data/Configuration.XML.native"
+mv -f "$output/data/Configuration.XML.native" "$output/data/Configuration.XML"
 cp "$repo/README-native-desktop.md" "$output/README.md"
 clang -arch arm64 -mmacosx-version-min="$minimum_macos" -std=gnu11 -O2 -Wall -Wextra \
     "$repo/scripts/a2-drawterm.c" -o "$launcher_tmp"

@@ -60,5 +60,9 @@
       <Properties><Caption>Task scheduler</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
       <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMTaskScheduler.Open</CommandString></Properties></Standard:SystemCommand>
     </Standard:Button>
+    <Standard:Button>
+      <Properties><Caption>Performance</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMPerfMon.Open</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
   </Standard:Panel>
 </Standard:Panel>
