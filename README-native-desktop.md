@@ -66,6 +66,15 @@ Search, archives, diff, event logs, inspection, repositories, character input,
 and scribbling are available as well. The slideshow uses the bundled
 `RetoWMSlideshow.XML`; the image viewer opens the bundled `mars.png`.
 
+**Tools > Web browser** opens A2's BimBrowser on a bundled welcome page. Its
+original HTML renderer can open local `file://` documents and plain `http://`
+pages. It does not support HTTPS or modern browser features. To open a URL from
+BlueShell, run `WebBrowser.OpenURL http://127.0.0.1:8080/`, substituting your
+HTTP address and port. The native build includes its HTML, CSS, SVG, and HTTP
+dependencies.
+From a source checkout, `scripts/test-a2-browser.sh build/native-browser-2026`
+checks a local HTTP exchange through the browser and its drawterm desktop.
+
 **Customize** includes the GUI builder, skin chooser, and a command to add a
 configurable desktop icon. **Save screenshot** writes `A2Shot.bmp` in the
 directory from which you launched `a2`; **View screenshot** opens that file.
