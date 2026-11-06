@@ -79,8 +79,8 @@ session are not automatically persisted.
 The Apple Silicon build also includes A2's Unix socket-backed IP, TCP, UDP,
 and DNS modules. From a source checkout, run
 `scripts/test-a2-network.sh build/native-customize-2026` to check byte order,
-`localhost` lookup, and local
-TCP/UDP traffic without contacting an external server. These modules are
+`localhost` lookup, local TCP/UDP traffic, and a TCP exchange with macOS
+`nc` without contacting an external server. These modules are
 available for native A2 programs; network applications still need their own
 runtime checks before being added to the menu.
 

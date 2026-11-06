@@ -19,7 +19,8 @@ test -x "$loader"
 test -s "$compiler"
 
 probe_dir=$(mktemp -d "${TMPDIR:-/tmp}/a2-network.XXXXXX")
-trap 'rm -rf "$probe_dir"' EXIT HUP INT TERM
+nc_pid=
+trap 'if [ -n "$nc_pid" ]; then kill "$nc_pid" 2>/dev/null || :; fi; rm -rf "$probe_dir"' EXIT HUP INT TERM
 printf '%s\n' \
     'Compiler.Compile -b=AArch64 --mergeSections --metaData=full --objectFileExtension=.GofAa --symbolFileExtension=.SymAa --define=UNIX,AARCH64,DESKTOP DarwinNetworkProbe.Mod ~' \
     > "$probe_dir/NetworkProbe.txt"
@@ -33,13 +34,35 @@ printf '%s\n' \
     "$loader" do 'DarwinNetworkProbe.Run'
 ) > "$probe_dir/result.log" 2>&1
 
+# A separate macOS netcat process checks that the A2 TCP stack works beyond
+# sockets created by the same runtime. Netcat sends OK and captures A2's reply.
+port=$(jot -r 1 40000 60000)
+printf OK > "$probe_dir/netcat-reply"
+nc -4 -w 5 -l 127.0.0.1 "$port" \
+    < "$probe_dir/netcat-reply" > "$probe_dir/netcat-received" &
+nc_pid=$!
+sleep 0.2
+(
+    cd "$probe_dir"
+    export AOSCONFIG='Color 0 StackSize 8192'
+    export AOSPATH="$probe_dir:$bundle:$library:$repo/tests:$repo/source:$repo/data"
+    export OBERON_CORE="$compiler"
+    "$loader" do "DarwinNetworkProbe.NetcatClient $port"
+) >> "$probe_dir/result.log" 2>&1
+wait "$nc_pid" || :
+nc_pid=
+
 cat "$probe_dir/result.log"
-for check in 'endian' 'localhost DNS' 'TCP loopback' 'UDP loopback'; do
+for check in 'endian' 'localhost DNS' 'TCP loopback' 'UDP loopback' 'netcat TCP exchange'; do
     if ! grep -Fq "NETWORK PASS $check" "$probe_dir/result.log"; then
         printf 'Network probe failed: %s\n' "$check" >&2
         exit 1
     fi
 done
+if [ "$(cat "$probe_dir/netcat-received")" != A2 ]; then
+    printf 'Netcat did not receive the A2 payload\n' >&2
+    exit 1
+fi
 if grep -Eq 'NETWORK FAIL|native signal|Trap [0-9]+' "$probe_dir/result.log"; then
     printf 'Network probe reported a native failure\n' >&2
     exit 1

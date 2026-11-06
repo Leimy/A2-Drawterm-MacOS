@@ -1,7 +1,7 @@
 MODULE DarwinNetworkProbe;
 
 (* Native AArch64 smoke checks for byte order and the Unix socket-backed stack. *)
-IMPORT SYSTEM, Network, IP, DNS, TCP, UDP, Sockets, Unix, KernelLog;
+IMPORT SYSTEM, Network, IP, DNS, TCP, UDP, Sockets, Unix, KernelLog, Commands;
 
 PROCEDURE Endian(): BOOLEAN;
 VAR buf: ARRAY 4 OF CHAR; value: UNSIGNED32;
@@ -88,6 +88,28 @@ BEGIN
 	sender.Close; Sockets.Close(receiver);
 	RETURN ok
 END LoopbackUDP;
+
+(* Exchange bytes with a separate process listening on the given loopback port. *)
+PROCEDURE NetcatClient*(context: Commands.Context);
+VAR port, result: SIGNED32; connection: TCP.Connection;
+	ip: IP.Adr; data: ARRAY 4 OF CHAR; received: SIZE;
+BEGIN
+	IF ~context.arg.GetInteger(port, FALSE) OR (port <= 0) OR (port > 65535) THEN
+		KernelLog.String("NETWORK FAIL netcat port"); KernelLog.Ln; RETURN
+	END;
+	ip := IP.StrToAdr("127.0.0.1"); NEW(connection);
+	connection.Open(TCP.NilPort, ip, UNSIGNED32(port), result);
+	IF result # TCP.Ok THEN KernelLog.String("NETWORK FAIL netcat connect"); KernelLog.Ln; RETURN END;
+	data := "A2"; connection.Send(data, 0, 2, TRUE, result);
+	IF result # TCP.Ok THEN connection.Close; KernelLog.String("NETWORK FAIL netcat send"); KernelLog.Ln; RETURN END;
+	received := 0; connection.Receive(data, 0, 2, 2, received, result);
+	IF (result = TCP.Ok) & (received = 2) & (data[0] = 'O') & (data[1] = 'K') THEN
+		KernelLog.String("NETWORK PASS netcat TCP exchange"); KernelLog.Ln
+	ELSE
+		KernelLog.String("NETWORK FAIL netcat receive"); KernelLog.Ln
+	END;
+	connection.Close
+END NetcatClient;
 
 PROCEDURE Run*;
 BEGIN
