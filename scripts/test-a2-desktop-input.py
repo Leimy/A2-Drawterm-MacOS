@@ -36,7 +36,7 @@ def main():
     parser.add_argument('--tetris', action='store_true', help='click Demos > Tetris and require a painted game window')
     parser.add_argument('--tetris-play', action='store_true', help='start Tetris with Space and require an updated game board')
     parser.add_argument('--tetris-shutdown', action='store_true', help='start Tetris, then shut A2 down from the menu')
-    parser.add_argument('--menu-app', choices=['tetris', 'oberon', 'log', 'clock', 'calendar', 'shell', 'files', 'tutorial', 'chinese-tutorial', 'pet', 'search', 'scribble', 'hex-editor', 'key-codes', 'color-picker', 'text-styles', 'image-viewer', 'graph-demos', 'drawing-overlay', 'on-screen-message', 'module-state', 'backdrops', 'gfx-spiral', 'slideshow', 'task-scheduler', 'interpreter-shell'],
+    parser.add_argument('--menu-app', choices=['tetris', 'oberon', 'log', 'clock', 'calendar', 'shell', 'files', 'tutorial', 'chinese-tutorial', 'pet', 'search', 'scribble', 'hex-editor', 'key-codes', 'color-picker', 'text-styles', 'image-viewer', 'graph-demos', 'drawing-overlay', 'on-screen-message', 'module-state', 'backdrops', 'gfx-spiral', 'slideshow', 'task-scheduler', 'interpreter-shell', 'gui-builder', 'skin-chooser', 'desktop-icon', 'input-methods', 'language', 'window-switcher'],
                         help='click a native A2 menu application and inspect the resulting window')
     parser.add_argument('--shell-command', help='type a command into BlueShell and wait for its effect')
     parser.add_argument('--paste-shell-command', action='store_true', help='paste --shell-command through drawterm /dev/snarf')
@@ -111,7 +111,11 @@ def main():
                      'drawing-overlay': (340, 270, 738), 'on-screen-message': (340, 270, 756),
                      'module-state': (340, 450, 738), 'backdrops': (340, 450, 756),
                      'gfx-spiral': (340, 630, 738), 'slideshow': (340, 630, 756),
-                     'task-scheduler': (75, 450, 738), 'interpreter-shell': (205, 810, 738)}
+                     'task-scheduler': (75, 450, 738), 'interpreter-shell': (205, 810, 738),
+                     'gui-builder': (370, 90, 738), 'skin-chooser': (370, 90, 756),
+                     'desktop-icon': (370, 270, 738),
+                     'input-methods': (370, 630, 738), 'language': (370, 630, 756),
+                     'window-switcher': (370, 810, 738)}
     tab_x, button_x, button_y = menu_position.get(menu_app, (150, 90, 738))
     menu_offset_y = resize_sizes[-1][1] - 768 if args.resize_menu else 0
     tetris_events = [(tab_x, 718 + menu_offset_y, 0), (tab_x, 718 + menu_offset_y, 1), (tab_x, 718 + menu_offset_y, 0),

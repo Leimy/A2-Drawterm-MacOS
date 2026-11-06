@@ -613,6 +613,16 @@ VAR
 
 
 	(* Swap internal representation of an IP address from big to little endian or vice versa. *)
+	#IF AARCH64 THEN
+	PROCEDURE SwapEndian(VAR adr: UNSIGNED32);
+	VAR b0, b1, b2, b3: UNSIGNED32;
+	BEGIN
+		b0 := adr MOD 100H; adr := adr DIV 100H;
+		b1 := adr MOD 100H; adr := adr DIV 100H;
+		b2 := adr MOD 100H; b3 := adr DIV 100H;
+		adr := b0*1000000H + b1*10000H + b2*100H + b3
+	END SwapEndian;
+	#ELSE
 	PROCEDURE  -SwapEndian(  VAR adr: UNSIGNED32 );
 	CODE
 	#IF I386 THEN
@@ -638,6 +648,7 @@ VAR
 		unimplemented
 	#END
 	END SwapEndian;
+	#END
 
 
 BEGIN
@@ -649,6 +660,5 @@ BEGIN
 	SetIPv6AdrNil( NilAdr );
 	NilAdr.usedProtocol := NilAdrIdent;
 END IP.
-
 
 

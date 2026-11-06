@@ -622,6 +622,61 @@ END Equal;
 
 (** Procedures to put and get data from and to arrays. No index checks are done due to performance! *)
 
+#IF AARCH64 THEN
+
+(* AArch64 has no inline assembler backend. Keep these byte accesses explicit;
+   the host is little-endian, while the Net variants use network byte order. *)
+PROCEDURE Put4*(VAR buf: ARRAY OF CHAR; ofs: SIZE; val: UNSIGNED32);
+VAR i: SIZE;
+BEGIN
+	FOR i := 0 TO 3 DO buf[ofs+i] := CHR(val MOD 100H); val := val DIV 100H END
+END Put4;
+
+PROCEDURE Put2*(VAR buf: ARRAY OF CHAR; ofs: SIZE; val: UNSIGNED32);
+BEGIN
+	buf[ofs] := CHR(val MOD 100H); buf[ofs+1] := CHR(val DIV 100H MOD 100H)
+END Put2;
+
+PROCEDURE Get4*(CONST buf: ARRAY OF CHAR; ofs: SIZE): INTEGER;
+VAR i: SIGNED32; val: UNSIGNED32;
+BEGIN
+	val := 0;
+	FOR i := 3 TO 0 BY -1 DO val := val*100H + UNSIGNED32(ORD(buf[ofs+SIZE(i)])) END;
+	RETURN SYSTEM.VAL(SIGNED32, val)
+END Get4;
+
+PROCEDURE Get2*(CONST buf: ARRAY OF CHAR; ofs: SIZE): INTEGER;
+BEGIN
+	RETURN SIGNED32(ORD(buf[ofs])) + 100H*SIGNED32(ORD(buf[ofs+1]))
+END Get2;
+
+PROCEDURE PutNet4*(VAR buf: ARRAY OF CHAR; ofs: SIZE; val: INTEGER);
+VAR i: SIGNED32; bits: UNSIGNED32;
+BEGIN
+	bits := SYSTEM.VAL(UNSIGNED32, val);
+	FOR i := 3 TO 0 BY -1 DO buf[ofs+SIZE(i)] := CHR(bits MOD 100H); bits := bits DIV 100H END
+END PutNet4;
+
+PROCEDURE PutNet2*(VAR buf: ARRAY OF CHAR; ofs: SIZE; val: UNSIGNED32);
+BEGIN
+	buf[ofs] := CHR(val DIV 100H MOD 100H); buf[ofs+1] := CHR(val MOD 100H)
+END PutNet2;
+
+PROCEDURE GetNet4*(CONST buf: ARRAY OF CHAR; ofs: SIZE): INTEGER;
+VAR i: SIZE; val: UNSIGNED32;
+BEGIN
+	val := 0;
+	FOR i := 0 TO 3 DO val := val*100H + UNSIGNED32(ORD(buf[ofs+i])) END;
+	RETURN SYSTEM.VAL(SIGNED32, val)
+END GetNet4;
+
+PROCEDURE GetNet2*(CONST buf: ARRAY OF CHAR; ofs: SIZE): INTEGER;
+BEGIN
+	RETURN 100H*SIGNED32(ORD(buf[ofs])) + SIGNED32(ORD(buf[ofs+1]))
+END GetNet2;
+
+#ELSE
+
 (** Put a 32-bit host value into buf[ofs..ofs+3] *)
 
 PROCEDURE Put4*(VAR buf: ARRAY OF CHAR; ofs: SIZE; val: UNSIGNED32);
@@ -897,6 +952,8 @@ CODE
 	unimplemented
 #END
 END GetNet2;
+
+#END
 
 (** Convert a LinkAdr to a printable string (up to size*3 characters) *)
 

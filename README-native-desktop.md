@@ -66,6 +66,24 @@ Search, archives, diff, event logs, inspection, repositories, character input,
 and scribbling are available as well. The slideshow uses the bundled
 `RetoWMSlideshow.XML`; the image viewer opens the bundled `mars.png`.
 
+**Customize** includes the GUI builder, skin chooser, and a command to add a
+configurable desktop icon. **Save screenshot** writes `A2Shot.bmp` in the
+directory from which you launched `a2`; **View screenshot** opens that file.
+The input-method selector offers Arabic, Armenian, Hebrew, Pinyin, Russian,
+Ukrainian, and Unicode entry; the language switcher and window switcher are
+also available from this page.
+The native bundle includes BMP and JPEG image codecs for these tools and
+existing applications such as Tetris. Skin and icon changes made in a running
+session are not automatically persisted.
+
+The Apple Silicon build also includes A2's Unix socket-backed IP, TCP, UDP,
+and DNS modules. From a source checkout, run
+`scripts/test-a2-network.sh build/native-customize-2026` to check byte order,
+`localhost` lookup, and local
+TCP/UDP traffic without contacting an external server. These modules are
+available for native A2 programs; network applications still need their own
+runtime checks before being added to the menu.
+
 To edit and compile the example in PET, copy it into your launch
 directory, run `PET.Open NativeDesktopHello.Mod` in BlueShell, then click
 **Compile**. PET's Fox compiler uses the DarwinA2 AArch64 target here.

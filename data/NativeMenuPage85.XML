@@ -1,0 +1,50 @@
+<Standard:Panel caption=" Customize ">
+  <Properties><FillColor>0</FillColor></Properties>
+  <Standard:Panel>
+    <Properties><Alignment>1</Alignment><Bounds><Width>180</Width></Bounds></Properties>
+    <Standard:Button>
+      <Properties><Caption>GUI builder</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMBuilder.Open</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
+    <Standard:Button>
+      <Properties><Caption>Choose skin</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMSkinLoader.Open SkinList.XML</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
+  </Standard:Panel>
+  <Standard:Panel>
+    <Properties><Alignment>1</Alignment><Bounds><Width>180</Width></Bounds></Properties>
+    <Standard:Button>
+      <Properties><Caption>New desktop icon</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMDesktopIcons.Open</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
+  </Standard:Panel>
+  <Standard:Panel>
+    <Properties><Alignment>1</Alignment><Bounds><Width>180</Width></Bounds></Properties>
+    <Standard:Button>
+      <Properties><Caption>Save screenshot</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMScreenShot.SnapShotRange A2Shot.bmp</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
+    <Standard:Button>
+      <Properties><Caption>View screenshot</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMPicView.Open A2Shot.bmp</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
+  </Standard:Panel>
+  <Standard:Panel>
+    <Properties><Alignment>1</Alignment><Bounds><Width>180</Width></Bounds></Properties>
+    <Standard:Button>
+      <Properties><Caption>Input methods</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMInputMethodTool.Open</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
+    <Standard:Button>
+      <Properties><Caption>Language</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMLanguageSwitcher.Open</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
+  </Standard:Panel>
+  <Standard:Panel>
+    <Properties><Alignment>1</Alignment><Bounds><Width>180</Width></Bounds></Properties>
+    <Standard:Button>
+      <Properties><Caption>Window switcher</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMNavigate.Open -vs -n 1 0 0 Navigation:TaskList</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
+  </Standard:Panel>
+</Standard:Panel>
