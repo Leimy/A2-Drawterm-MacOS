@@ -94,8 +94,11 @@ Leimbach's [9front radioglobe](https://github.com/leimy/radioglobe). Drag the
 globe with the left mouse button to rotate; use the wheel to zoom. This first
 preview has no station markers or audio playback. Its bundled 1024x512 Earth
 texture is downsampled from radioglobe's `earth.mask`; no Python is needed at
-runtime. The globe renders a quicker preview while dragging and restores full
-detail when the button is released.
+runtime. Drag and release to spin the globe; friction gradually stops it, and
+pressing the left button grabs and stops it immediately. The motion follows
+[libview's orbit controller](https://github.com/Leimy/libview/blob/master/orbit.c),
+with decay based on elapsed time. The globe renders a quicker preview during
+motion and restores full detail when it stops.
 The input-method selector offers Arabic, Armenian, Hebrew, Pinyin, Russian,
 Ukrainian, and Unicode entry; the language switcher and window switcher are
 also available from this page.

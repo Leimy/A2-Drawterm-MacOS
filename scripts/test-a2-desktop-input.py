@@ -37,6 +37,7 @@ def main():
     parser.add_argument('--tetris-play', action='store_true', help='start Tetris with Space and require an updated game board')
     parser.add_argument('--tetris-shutdown', action='store_true', help='start Tetris, then shut A2 down from the menu')
     parser.add_argument('--three-d-zoom', action='store_true', help='right-drag in Demos > 3D Explorer and require the scene to change')
+    parser.add_argument('--radio-globe-regression', action='store_true', help='check polar rendering, inertia, friction, grab and close')
     parser.add_argument('--radio-globe-interaction', action='store_true', help='drag and wheel Demos > RadioGlobe and require the Earth to change')
     parser.add_argument('--menu-app', choices=['tetris', 'oberon', 'log', 'clock', 'calendar', 'shell', 'files', 'tutorial', 'chinese-tutorial', 'pet', 'search', 'scribble', 'bunny', '3d-explorer', 'turing', 'radio-globe', 'hex-editor', 'key-codes', 'color-picker', 'text-styles', 'image-viewer', 'graph-demos', 'drawing-overlay', 'on-screen-message', 'module-state', 'backdrops', 'gfx-spiral', 'slideshow', 'task-scheduler', 'performance', 'ftp-client', 'skin-editor', 'interpreter-shell', 'gui-builder', 'skin-chooser', 'desktop-icon', 'input-methods', 'language', 'window-switcher', 'web-browser'],
                         help='click a native A2 menu application and inspect the resulting window')
@@ -71,6 +72,12 @@ def main():
         parser.error('--three-d-zoom requires --menu-app 3d-explorer')
     if args.radio_globe_interaction and args.menu_app != 'radio-globe':
         parser.error('--radio-globe-interaction requires --menu-app radio-globe')
+    radio_checks = None
+    if args.radio_globe_regression:
+        if args.menu_app != 'radio-globe' or args.radio_globe_interaction:
+            parser.error('--radio-globe-regression requires --menu-app radio-globe without --radio-globe-interaction')
+        from a2_radio_globe_checks import RadioGlobeChecks
+        radio_checks = RadioGlobeChecks(args.capture)
     host, guest = socket.socketpair()
     env = os.environ.copy()
     core_dir = Path(args.core).resolve().parent
@@ -294,7 +301,7 @@ def main():
                     raise RuntimeError(f'{menu_app} did not paint a window')
                 if menu_app == 'oberon' and pixels[(200 * screen_width + 200) * 3] < 200:
                     raise RuntimeError('Oberon viewer area is still blank')
-                if not play_tetris and not args.shell_command and not args.backdrop_select and not args.three_d_zoom and not args.radio_globe_interaction:
+                if not play_tetris and not args.shell_command and not args.backdrop_select and not args.three_d_zoom and not args.radio_globe_interaction and not args.radio_globe_regression:
                     print(f'PASS: {menu_app} menu command painted a window')
                     return
             if args.three_d_zoom and tetris_sent_at is not None and time.monotonic() - tetris_sent_at > 2 and three_d_drag_index < len(three_d_drag_events) and mouse_tag is not None and time.monotonic() >= next_event:
@@ -311,6 +318,14 @@ def main():
                     raise RuntimeError('right-button drag did not zoom the 3D scene')
                 print('PASS: right-button drag zoomed the 3D scene')
                 return
+            if radio_checks is not None and tetris_sent_at is not None and time.monotonic() - tetris_sent_at > 2:
+                mouse, done = radio_checks.step(pixels, screen_width, mouse_tag is not None)
+                if done:
+                    return
+                if mouse is not None:
+                    event = ('m' + ''.join(f'{n:11d} ' for n in [*mouse, int(time.monotonic()*1000) % 10000000])).encode()
+                    host.sendall(packet(117, mouse_tag, struct.pack('<I', len(event)) + event))
+                    mouse_tag = None
             if args.radio_globe_interaction and tetris_sent_at is not None and time.monotonic() - tetris_sent_at > 2 and radio_drag_index < len(radio_drag_events) and mouse_tag is not None and time.monotonic() >= next_event:
                 if radio_drag_before is None:
                     radio_drag_before = hashlib.sha256(b''.join(pixels[(y * screen_width + 200) * 3:(y * screen_width + 350) * 3] for y in range(170, 450))).digest()

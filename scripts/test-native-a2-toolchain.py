@@ -27,12 +27,12 @@ def main():
                 raise
             print(result.stdout, end='', flush=True)
             return result.stdout
-        run('compile', 'NativeBuildHello.Mod', 'NativeClockGCRegression.Mod', 'ConcurrentSieve.Mod', 'A64NilTypeTest.Mod',
+        run('compile', 'Math32.Mod', 'Math64.Mod', 'NativeTrigRegression.Mod', 'NativeBuildHello.Mod', 'NativeClockGCRegression.Mod', 'ConcurrentSieve.Mod', 'A64NilTypeTest.Mod',
             'A64SignedConversionTest.Mod', 'A64BitcastTest.Mod', 'A64CallingConventionTest.Mod',
             'A64AddressLoweringTest.Mod', 'A64CompositeReturnTest.Mod', 'A64InlineCodeTest.Mod',
             'A64InlineEmpty.Mod', 'A64InlineConstant.Mod', 'A64InlineConstantUse.Mod',
             'FoxAArch64InstructionSetTest.Mod', 'A64ComplexRegression.Mod')
-        for module in ['NativeBuildHello', 'NativeClockGCRegression', 'ConcurrentSieve', 'A64NilTypeTest',
+        for module in ['NativeTrigRegression', 'NativeBuildHello', 'NativeClockGCRegression', 'ConcurrentSieve', 'A64NilTypeTest',
                        'A64SignedConversionTest', 'A64BitcastTest', 'A64CallingConventionTest',
                        'A64AddressLoweringTest', 'A64CompositeReturnTest', 'A64InlineCodeTest',
                        'A64InlineEmpty', 'A64InlineConstant', 'A64InlineConstantUse',
@@ -41,7 +41,7 @@ def main():
         output = run('do', 'NativeBuildHello.Run ~ NativeClockGCRegression.Run ~ A64NilTypeTest.Run ~ A64SignedConversionTest.Run ~ '
                      'A64BitcastTest.Run ~ A64CallingConventionTest.Run ~ A64CompositeReturnTest.Run ~ '
                      'A64InlineCodeTest.Run ~ A64InlineEmpty.Run ~ A64InlineConstantUse.Run ~ '
-                     'FoxAArch64InstructionSetTest.Run ~ A64ComplexRegression.Run ~ '
+                     'FoxAArch64InstructionSetTest.Run ~ A64ComplexRegression.Run ~ NativeTrigRegression.Run ~ '
                      'ConcurrentSieve.Run 50 ~ System.Wait 1000 ~')
         assert 'Native Mac build: answer = 42' in output
         assert 'Native clock/GC: 256 reads, 16 collections OK' in output
@@ -59,6 +59,7 @@ def main():
         assert 'exported AArch64 inline constant passed' in output
         assert 'AArch64 instruction encoding tests passed' in output
         assert 'AArch64 complex operators passed' in output
+        assert 'Portable inverse trigonometry passed' in output
         assert '2 3 5 7 11 13 17 19 23 29 31 37 41 43 47' in output
         # A bare platform keeps per-procedure sections for the C ABI fixture;
         # the normal A2 platform merges sections and supplies GC metadata.
@@ -69,7 +70,7 @@ def main():
         run('execute', 'Regression.txt')
         subprocess.run([sys.executable, str(ROOT / 'scripts' / 'test-a64-call-regression.py'),
                         str(work / 'A64CallRegression.bin')], check=True, timeout=60)
-    print('PASS: native compiler, linker, dynamic loading, clock/GC, complex operators, active objects, NIL type tests, '
+    print('PASS: native compiler, linker, dynamic loading, clock/GC, complex operators, inverse trigonometry, active objects, NIL type tests, '
           'signed conversion, SYSTEM.VAL bitcasts, calling conventions, composite returns, inline code, literal addresses, '
           'instruction encodings, and nine code-generation regressions')
 

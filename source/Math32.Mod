@@ -627,8 +627,10 @@ END arccos;
 	BEGIN
 		IF (y = 1) OR (y = -1) THEN
 			RETURN y * pi / 4
-		ELSIF (y > 1) OR (y < -1) THEN
+		ELSIF y > 1 THEN
 			RETURN pi / 2 - arctan(1 / y)
+		ELSIF y < -1 THEN
+			RETURN -pi / 2 - arctan(1 / y)
 		ELSE
 			(* atan(y) = sum_k (-1)^(k) y^{2 k + 1} / (2 k + 1), |y| < 1 *)
 			prev := pi / 2;

@@ -1,0 +1,156 @@
+"""Framebuffer and inertia checks driven through the real A2 mouse event path."""
+import hashlib
+import math
+from pathlib import Path
+import struct
+import subprocess
+import tempfile
+import time
+
+
+class RadioGlobeChecks:
+    def __init__(self, capture=None):
+        self.capture = capture
+        self.check_deadline = None
+        # sips is bundled with macOS; the test needs no imaging package.
+        texture = Path(__file__).resolve().parents[1] / 'data/RadioGlobeEarth.png'
+        with tempfile.TemporaryDirectory(prefix='a2-globe-texture-') as work:
+            bmp = Path(work) / 'earth.bmp'
+            subprocess.run(['sips', '-s', 'format', 'bmp', str(texture), '--out', str(bmp)],
+                           check=True, stdout=subprocess.DEVNULL)
+            data = bmp.read_bytes()
+        offset = struct.unpack_from('<I', data, 10)[0]
+        self.tw, height = struct.unpack_from('<ii', data, 18)
+        bits = struct.unpack_from('<H', data, 28)[0]
+        assert bits in (24, 32) and struct.unpack_from('<I', data, 30)[0] == 0
+        self.th = abs(height)
+        stride = ((self.tw * bits + 31) // 32) * 4
+        self.texture = []
+        for y in range(self.th):
+            row = offset + (self.th - 1 - y if height > 0 else y) * stride
+            self.texture.append([tuple(data[row + x * (bits // 8):row + x * (bits // 8) + 3][::-1])
+                                 for x in range(self.tw)])
+        self.lat, self.lon = math.radians(20), 0
+        self.index = 0
+        self.due = 0
+        self.snapshot = None
+        # Each wait follows the action. Long holds deliberately remove momentum
+        # from the reference-image checks; short releases exercise inertia.
+        self.actions = [
+            ('image', 'initial', 0.1),
+            ('mouse', (400, 330, 1), 0.1), ('mouse', (400, 100, 1), 0.25),
+            ('mouse', (400, 100, 0), 1.5), ('rotate', (0, -230), 0),
+            ('image', 'southern pole', 0),
+            ('mouse', (400, 100, 1), 0.1), ('mouse', (400, 550, 1), 0.25),
+            ('mouse', (400, 550, 0), 1.5), ('rotate', (0, 450), 0),
+            ('image', 'northern pole', 0),
+            ('mouse', (500, 320, 1), 0.1), ('mouse', (100, 320, 1), 0.25),
+            ('mouse', (100, 320, 0), 1.5), ('rotate', (400, 0), 0),
+            ('mouse', (500, 320, 1), 0.1), ('mouse', (100, 320, 1), 0.25),
+            ('mouse', (100, 320, 0), 1.5), ('rotate', (400, 0), 0),
+            ('image', 'longitude seam', 0),
+            ('mouse', (370, 320, 1), 0.06), ('mouse', (430, 320, 1), 0.06),
+            ('mouse', (430, 320, 0), 0.8), ('remember', None, 0.5),
+            ('changed', 'released globe keeps spinning', 3),
+            ('remember', None, 0.3), ('unchanged', 'friction brings the globe to rest', 0),
+            ('mouse', (370, 320, 1), 0.06), ('mouse', (430, 320, 1), 0.06),
+            ('mouse', (430, 320, 0), 0.15), ('mouse', (430, 320, 1), 0.8),
+            ('remember', None, 0.3), ('unchanged', 'grabbing stops the spin', 0),
+            ('mouse', (430, 320, 0), 0.2),
+            ('mouse', (370, 320, 1), 0.06), ('mouse', (430, 320, 1), 0.06),
+            ('mouse', (430, 320, 0), 0.1),
+            ('mouse', (672, 70, 1), 0.06), ('mouse', (672, 70, 0), 1.5),
+            ('closed', None, 0),
+        ]
+
+        # Establish hover/focus before starting a new drag, as a real pointer does.
+        expanded = []
+        for action in self.actions:
+            if action[0] == 'mouse' and action[1][2] == 1 and (not expanded or expanded[-1][0] != 'mouse' or expanded[-1][1][2] != 1):
+                x, y, _ = action[1]
+                expanded.append(('mouse', (x, y, 0), 0.6))
+            if action[0] == 'mouse':
+                action = (action[0], action[1], max(0.6, action[2]))
+            expanded.append(action)
+            if action[0] == 'mouse' and action[1][2] == 1 and action[1] in ((400, 100, 1), (400, 550, 1), (100, 320, 1)):
+                expanded.append(('mouse', action[1], 0.6))
+        self.actions = expanded
+
+    def check_image(self, pixels, width, label):
+        bad = total = 0
+        cl, sl = math.cos(self.lat), math.sin(self.lat)
+        co, so = math.cos(self.lon), math.sin(self.lon)
+        for y in range(60, 430, 11):
+            for x in range(110, 490, 11):
+                sx, sy = (x - 300) / 205, (238 - y) / 205
+                rr = sx * sx + sy * sy
+                if rr > 0.94:
+                    continue
+                sz = math.sqrt(1 - rr)
+                px = -so*sx - sl*co*sy + cl*co*sz
+                py = co*sx - sl*so*sy + cl*so*sz
+                pz = cl*sy + sl*sz
+                u = min(self.tw - 1, int((math.atan2(py, px)/(2*math.pi) + 0.5)*self.tw))
+                v = min(self.th - 1, int((0.5 - math.asin(max(-1, min(1, pz)))/math.pi)*self.th))
+                light = 0.30 + 0.70 * max(0, -0.35*sx + 0.45*sy + 0.82*sz)
+                pos = ((y + 80)*width + x + 80)*3
+                actual = pixels[pos:pos + 3]
+                # LUT rounding can move a sample across a texel edge. Accept
+                # nearby texels, but not the large erroneous polar cap.
+                error = min(max(abs(actual[c] - int(self.texture[min(self.th-1, max(0, v+dv))][(u+du) % self.tw][c]*light))
+                                for c in range(3)) for du in (-1, 0, 1) for dv in (-1, 0, 1))
+                bad += error > 4
+                total += 1
+        if bad > total * 0.03:
+            raise RuntimeError(f'RadioGlobe {label}: {bad}/{total} samples disagree with independent spherical projection')
+        print(f'PASS: RadioGlobe {label} projection ({total-bad}/{total} samples)')
+
+    def step(self, pixels, width, mouse_ready):
+        if self.index == len(self.actions):
+            return None, True
+        if time.monotonic() < self.due:
+            return None, False
+        kind, value, wait = self.actions[self.index]
+        if kind == 'mouse' and not mouse_ready:
+            return None, False
+        digest = hashlib.sha256(b''.join(pixels[(y*width+250)*3:(y*width+350)*3]
+                                       for y in range(180, 440))).digest()
+        if kind == 'image':
+            try:
+                self.check_image(pixels, width, value)
+            except RuntimeError:
+                if self.check_deadline is None:
+                    self.check_deadline = time.monotonic() + 5
+                if time.monotonic() < self.check_deadline:
+                    self.due = time.monotonic() + 0.1
+                    return None, False
+                raise
+            if self.capture:
+                name = self.capture.with_name(self.capture.stem + '-' + value.replace(' ', '-') + '.ppm')
+                name.write_bytes(f'P6\n{width} {len(pixels)//(width*3)}\n255\n'.encode() + pixels)
+        elif kind == 'rotate':
+            self.lon += value[0] / 205
+            self.lat = max(-math.pi/2, min(math.pi/2, self.lat + value[1] / 205))
+        elif kind == 'remember':
+            self.snapshot = digest
+        elif kind in ('changed', 'unchanged'):
+            if (digest != self.snapshot) != (kind == 'changed'):
+                raise RuntimeError('RadioGlobe: ' + value + ' failed')
+            print('PASS: RadioGlobe ' + value)
+        elif kind == 'closed':
+            samples = {bytes(pixels[(y*width+x)*3:(y*width+x)*3+3])
+                       for y in (450, 480, 520) for x in (250, 300, 350)}
+            background = bytes(pixels[(200*width+800)*3:(200*width+800)*3+3])
+            # The startup window is uncovered above y=423; sample below it.
+            if samples != {background}:
+                if self.check_deadline is None:
+                    self.check_deadline = time.monotonic() + 5
+                if time.monotonic() < self.check_deadline:
+                    self.due = time.monotonic() + 0.1
+                    return None, False
+                raise RuntimeError('RadioGlobe did not close during inertial motion')
+            print('PASS: RadioGlobe closed during inertial motion')
+        self.check_deadline = None
+        self.index += 1
+        self.due = time.monotonic() + wait
+        return (value if kind == 'mouse' else None), False
