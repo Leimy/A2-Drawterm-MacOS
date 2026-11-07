@@ -92,6 +92,10 @@ with the left mouse button to rotate and drag with the right button to zoom.
 **Demos > RadioGlobe (preview)** shows a textured Earth based on David
 Leimbach's [9front radioglobe](https://github.com/leimy/radioglobe). Drag the
 globe with the left mouse button to rotate; use the wheel to zoom. This first
+preview keeps the globe circular when its window is resized. Wheel zoom can
+enlarge it beyond the window edges; rendering clips to the visible area.
+The application lives in `source/WMRadioGlobe.Mod`, with a separate Earth texture
+and shared A2 graphics and math modules. This
 preview has no station markers or audio playback. Its bundled 1024x512 Earth
 texture is downsampled from radioglobe's `earth.mask`; no Python is needed at
 runtime. Drag and release to spin the globe; friction gradually stops it, and

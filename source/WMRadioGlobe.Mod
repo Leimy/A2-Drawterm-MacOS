@@ -5,7 +5,7 @@ IMPORT Math64, Raster, WMGraphics, WMRectangles, WMWindowManager, Strings, Kerne
 CONST
 	Width = 600; Height = 500;
 	CenterX = Width DIV 2; CenterY = 238;
-	MinRadius = 80; MaxRadius = 230;
+	MinRadius = 80; MaxRadius = 8192;
 	LutSize = 8192;
 	FrameMs = 25;
 	MinVelocity = 0.00000872664626; (* 0.0005 degrees/ms, as in libview/orbit.c *)
@@ -55,13 +55,14 @@ TYPE
 	Orbit = OBJECT
 	VAR
 		latitude, longitude, velocityLat, velocityLon: FLOAT64;
-		radius, oldX, oldY: SIZE;
+		radius, oldX, oldY, viewWidth, viewHeight: SIZE;
 		dragging, dirty, alive: BOOLEAN;
 		lastMove, lastStep: SIGNED32;
 
 		PROCEDURE &New;
 		BEGIN
 			latitude := Math64.deg2rad(20); radius := 205;
+			viewWidth := Width; viewHeight := Height;
 			alive := TRUE; dirty := TRUE; lastStep := Kernel.GetTicks()
 		END New;
 
@@ -83,11 +84,12 @@ TYPE
 		END PointerDown;
 
 		PROCEDURE PointerMove*(x, y: SIZE; keys: SET);
-		VAR now, dt: SIGNED32; dx, dy, oldLat: FLOAT64;
+		VAR now, dt: SIGNED32; dx, dy, oldLat, scale: FLOAT64;
 		BEGIN {EXCLUSIVE}
 			IF dragging & (0 IN keys) THEN
 				now := Kernel.GetTicks(); dt := now - lastMove;
-				dx := (oldX - x) / radius; dy := (y - oldY) / radius;
+				scale := MIN(viewWidth / Width, viewHeight / Height);
+				dx := (oldX - x) / (radius * scale); dy := (y - oldY) / (radius * scale);
 				oldLat := latitude;
 				longitude := longitude + dx; latitude := latitude + dy;
 				Normalize;
@@ -109,12 +111,17 @@ TYPE
 
 		PROCEDURE WheelMove*(dz: SIZE);
 		BEGIN {EXCLUSIVE}
-			radius := MAX(MinRadius, MIN(MaxRadius, radius + dz * 15)); dirty := TRUE
+			radius := MAX(MinRadius, MIN(MaxRadius, radius + dz * MAX(15, radius DIV 10))); dirty := TRUE
 		END WheelMove;
+
+		PROCEDURE Resize(width, height: SIZE);
+		BEGIN {EXCLUSIVE}
+			viewWidth := width; viewHeight := height; dirty := TRUE
+		END Resize;
 
 		(* Only the active body renders. Input handlers update state, and this
 		   snapshot releases the monitor before drawing or swapping buffers. *)
-		PROCEDURE NextFrame(VAR lat, lon: FLOAT64; VAR rad: SIZE; VAR coarse: BOOLEAN): BOOLEAN;
+		PROCEDURE NextFrame(VAR lat, lon: FLOAT64; VAR rad, width, height: SIZE; VAR coarse: BOOLEAN): BOOLEAN;
 		VAR now: SIGNED32; elapsed, step, friction: FLOAT64;
 		BEGIN {EXCLUSIVE}
 			AWAIT(~alive OR dirty OR (~dragging & ((velocityLat # 0) OR (velocityLon # 0))));
@@ -135,6 +142,7 @@ TYPE
 				END
 			END;
 			lat := latitude; lon := longitude; rad := radius;
+			width := viewWidth; height := viewHeight;
 			coarse := dragging OR (velocityLat # 0) OR (velocityLon # 0);
 			dirty := FALSE; RETURN TRUE
 		END NextFrame;
@@ -160,27 +168,32 @@ TYPE
 			texture := WMGraphics.LoadImage("RadioGlobeEarth.png", TRUE)
 		END New;
 
-		PROCEDURE Render(latitude, longitude: FLOAT64; radius: SIZE; coarse: BOOLEAN);
-		VAR x, y, u, v, source, target, stride: SIZE;
+		PROCEDURE Render(latitude, longitude: FLOAT64; radius, width, height: SIZE; coarse: BOOLEAN);
+		VAR x, y, u, v, source, target, stride, cx, cy, right, bottom, xx, yy: SIZE;
 			b, g, r: CHAR;
 			sx, sy, sz, rr, cLat, sLat, cLon, sLon, px, py, pz, lat, lon, light: FLOAT64;
 		BEGIN
-			canvas.Fill(WMRectangles.MakeRect(0, 0, Width, Height), 0001024FFH, WMGraphics.ModeCopy);
+			IF (backImg.width # width) OR (backImg.height # height) THEN ReInit(width, height) END;
+			cx := width DIV 2; cy := height DIV 2 - 12;
+			radius := MAX(1, ENTIER(radius * MIN(width / Width, height / Height)));
+			canvas.Fill(WMRectangles.MakeRect(0, 0, width, height), 0001024FFH, WMGraphics.ModeCopy);
 			IF texture = NIL THEN
 				canvas.DrawString(20, 35, "RadioGlobeEarth.png is missing");
-				Swap; Invalidate(WMRectangles.MakeRect(0, 0, Width, Height)); RETURN
+				Swap; Invalidate(WMRectangles.MakeRect(0, 0, width, height)); RETURN
 			END;
 			ASSERT(texture.fmt.code = Raster.bgra8888);
 			ASSERT(backImg.fmt.code = Raster.bgra8888);
 			stride := 1; IF coarse THEN stride := 2 END;
 			cLat := Math64.cos(latitude); sLat := Math64.sin(latitude);
 			cLon := Math64.cos(longitude); sLon := Math64.sin(longitude);
-			y := CenterY - radius;
-			WHILE y <= CenterY + radius DO
-				sy := (CenterY - y) / radius;
-				x := CenterX - radius;
-				WHILE x <= CenterX + radius DO
-					sx := (x - CenterX) / radius;
+			(* Clip before sampling: zoom cost is bounded by the visible viewport. *)
+			right := MIN(width - 1, cx + radius); bottom := MIN(height - 1, cy + radius);
+			y := MAX(0, cy - radius);
+			WHILE y <= bottom DO
+				sy := (cy - y) / radius;
+				x := MAX(0, cx - radius);
+				WHILE x <= right DO
+					sx := (x - cx) / radius;
 					rr := sx * sx + sy * sy;
 					IF rr <= 1 THEN
 						sz := Math64.sqrt(1 - rr);
@@ -202,13 +215,13 @@ TYPE
 						backImg.mem[target] := b; backImg.mem[target + 1] := g;
 						backImg.mem[target + 2] := r; backImg.mem[target + 3] := 0FFX;
 						IF coarse THEN
-							backImg.mem[target + 4] := b; backImg.mem[target + 5] := g;
-							backImg.mem[target + 6] := r; backImg.mem[target + 7] := 0FFX;
-							target := target + backImg.bpr;
-							backImg.mem[target] := b; backImg.mem[target + 1] := g;
-							backImg.mem[target + 2] := r; backImg.mem[target + 3] := 0FFX;
-							backImg.mem[target + 4] := b; backImg.mem[target + 5] := g;
-							backImg.mem[target + 6] := r; backImg.mem[target + 7] := 0FFX
+							FOR yy := y TO MIN(y + 1, height - 1) DO
+								FOR xx := x TO MIN(x + 1, width - 1) DO
+									target := yy * backImg.bpr + xx * 4;
+									backImg.mem[target] := b; backImg.mem[target + 1] := g;
+									backImg.mem[target + 2] := r; backImg.mem[target + 3] := 0FFX
+								END
+							END
 						END
 					END;
 					INC(x, stride)
@@ -216,11 +229,11 @@ TYPE
 				INC(y, stride)
 			END;
 			canvas.SetColor(WMGraphics.White);
-			canvas.DrawString(16, 482, "Drag to rotate  |  wheel to zoom  |  globe preview (no audio yet)");
+			canvas.DrawString(16, height - 18, "Drag to rotate  |  wheel to zoom  |  globe preview (no audio yet)");
 			(* Desktop zoom otherwise bilinearly filters every enlarged motion frame. *)
 			HintReduceQuality(coarse);
 			Swap;
-			Invalidate(WMRectangles.MakeRect(0, 0, Width, Height))
+			Invalidate(WMRectangles.MakeRect(0, 0, width, height))
 		END Render;
 
 
@@ -236,11 +249,25 @@ TYPE
 		PROCEDURE WheelMove*(dz: SIZE);
 		BEGIN orbit.WheelMove(dz) END WheelMove;
 
-		PROCEDURE Animate;
-		VAR lat, lon: FLOAT64; rad: SIZE; coarse: BOOLEAN; started, delay: SIGNED32;
+		PROCEDURE Resizing*(VAR width, height: SIZE);
 		BEGIN
-			WHILE orbit.NextFrame(lat, lon, rad, coarse) DO
-				started := Kernel.GetTicks(); Render(lat, lon, rad, coarse);
+			Resizing^(width, height);
+			width := MAX(160, MIN(2048, width)); height := MAX(120, MIN(2048, height))
+		END Resizing;
+
+		PROCEDURE Resized*(width, height: SIZE);
+		BEGIN
+			(* Reallocation belongs to the renderer, never the input sequencer. *)
+			IF (width > 0) & (height > 0) & (width <= 2048) & (height <= 2048) THEN
+				orbit.Resize(width, height)
+			END
+		END Resized;
+
+		PROCEDURE Animate;
+		VAR lat, lon: FLOAT64; rad, width, height: SIZE; coarse: BOOLEAN; started, delay: SIGNED32;
+		BEGIN
+			WHILE orbit.NextFrame(lat, lon, rad, width, height, coarse) DO
+				started := Kernel.GetTicks(); Render(lat, lon, rad, width, height, coarse);
 				delay := FrameMs - (Kernel.GetTicks() - started);
 				IF delay > 0 THEN timer.Sleep(delay) END
 			END

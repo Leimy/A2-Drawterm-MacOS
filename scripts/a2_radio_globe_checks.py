@@ -63,6 +63,29 @@ class RadioGlobeChecks:
             ('closed', None, 0),
         ]
 
+        geometry = []
+        def drag(x, y, endx, endy):
+            geometry.extend([('mouse', (x, y, 0), 0.6),
+                             ('mouse', (x, y, 1), 0.6),
+                             ('mouse', (endx, endy, 1), 0.6),
+                             ('mouse', (endx, endy, 0), 1.5)])
+        drag(681, 330, 881, 330)
+        geometry.append(('shape', (800, 500), 0))
+        drag(881, 330, 481, 330)
+        drag(300, 581, 300, 681)
+        geometry.append(('shape', (400, 600), 0))
+        drag(481, 330, 681, 330)
+        drag(300, 681, 300, 581)
+        geometry.append(('shape', (600, 500), 0))
+        # Zoom beyond every side of the content area, verify that
+        # rendering is clipped safely at the framebuffer boundaries.
+        for _ in range(13):
+            geometry.extend([('mouse', (380, 318, 16), 0.15),
+                             ('mouse', (380, 318, 0), 0.15)])
+        geometry.append(('clipped', None, 1))
+        # Run geometry after the existing projection/inertia checks, before close.
+        self.actions[-6:-6] = geometry
+
         # Establish hover/focus before starting a new drag, as a real pointer does.
         expanded = []
         for action in self.actions:
@@ -105,6 +128,29 @@ class RadioGlobeChecks:
             raise RuntimeError(f'RadioGlobe {label}: {bad}/{total} samples disagree with independent spherical projection')
         print(f'PASS: RadioGlobe {label} projection ({total-bad}/{total} samples)')
 
+    def check_geometry(self, pixels, screen_width, kind, dimensions):
+        def pixel(x, y):
+            pos = ((y + 80)*screen_width + x + 80)*3
+            return bytes(pixels[pos:pos+3])
+        background = bytes((0, 16, 36))
+        if kind == 'clipped':
+            if any(pixel(x, y) == background for x, y in
+                   ((0, 238), (599, 238), (300, 0), (300, 499))):
+                raise RuntimeError('Globe zoom did not extend beyond all window edges')
+            print('PASS: globe zoom extends beyond viewport and clips at all four edges')
+            return
+        w, h = dimensions
+        cx, cy = w//2, h//2 - 12
+        radius = int(205*min(w/600, h/500))
+        for angle in range(0, 360, 15):
+            a = math.radians(angle)
+            for delta in (-4, 4):
+                x = round(cx + (radius + delta)*math.cos(a))
+                y = round(cy + (radius + delta)*math.sin(a))
+                if (pixel(x, y) == background) != (delta > 0):
+                    raise RuntimeError(f'Globe is not circular after resize to {w}x{h}')
+        print(f'PASS: circular globe after resize to {w}x{h}')
+
     def step(self, pixels, width, mouse_ready):
         if self.index == len(self.actions):
             return None, True
@@ -115,7 +161,17 @@ class RadioGlobeChecks:
             return None, False
         digest = hashlib.sha256(b''.join(pixels[(y*width+250)*3:(y*width+350)*3]
                                        for y in range(180, 440))).digest()
-        if kind == 'image':
+        if kind in ('shape', 'clipped'):
+            try:
+                self.check_geometry(pixels, width, kind, value)
+            except RuntimeError:
+                if self.check_deadline is None:
+                    self.check_deadline = time.monotonic() + 5
+                if time.monotonic() < self.check_deadline:
+                    self.due = time.monotonic() + 0.1
+                    return None, False
+                raise
+        elif kind == 'image':
             try:
                 self.check_image(pixels, width, value)
             except RuntimeError:
