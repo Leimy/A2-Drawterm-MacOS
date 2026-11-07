@@ -57,4 +57,11 @@
       <Standard:SystemCommand><Properties><ID>X</ID><CommandString>TuringCoatWnd.Open</CommandString></Properties></Standard:SystemCommand>
     </Standard:Button>
   </Standard:Panel>
+  <Standard:Panel>
+    <Properties><Alignment>1</Alignment><Bounds><Width>180</Width></Bounds></Properties>
+    <Standard:Button>
+      <Properties><Caption>RadioGlobe (preview)</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMRadioGlobe.Open</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
+  </Standard:Panel>
 </Standard:Panel>

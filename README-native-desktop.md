@@ -89,6 +89,12 @@ not yet been verified. **Demos > Bunny** displays the bundled animated GIF.
 **Demos > 3D Explorer** opens the native software-rendered 3D viewer; drag
 with the left mouse button to rotate and drag with the right button to zoom.
 **Demos > Turing patterns** animates the reaction-diffusion simulation.
+**Demos > RadioGlobe (preview)** shows a textured Earth based on David
+Leimbach's [9front radioglobe](https://github.com/leimy/radioglobe). Drag the
+globe with the left mouse button to rotate; use the wheel to zoom. This first
+preview has no station markers or audio playback. Its bundled 1024x512 Earth
+texture is downsampled from radioglobe's `earth.mask`; no Python is needed at
+runtime.
 The input-method selector offers Arabic, Armenian, Hebrew, Pinyin, Russian,
 Ukrainian, and Unicode entry; the language switcher and window switcher are
 also available from this page.

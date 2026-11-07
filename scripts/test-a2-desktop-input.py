@@ -37,7 +37,8 @@ def main():
     parser.add_argument('--tetris-play', action='store_true', help='start Tetris with Space and require an updated game board')
     parser.add_argument('--tetris-shutdown', action='store_true', help='start Tetris, then shut A2 down from the menu')
     parser.add_argument('--three-d-zoom', action='store_true', help='right-drag in Demos > 3D Explorer and require the scene to change')
-    parser.add_argument('--menu-app', choices=['tetris', 'oberon', 'log', 'clock', 'calendar', 'shell', 'files', 'tutorial', 'chinese-tutorial', 'pet', 'search', 'scribble', 'bunny', '3d-explorer', 'turing', 'hex-editor', 'key-codes', 'color-picker', 'text-styles', 'image-viewer', 'graph-demos', 'drawing-overlay', 'on-screen-message', 'module-state', 'backdrops', 'gfx-spiral', 'slideshow', 'task-scheduler', 'performance', 'ftp-client', 'skin-editor', 'interpreter-shell', 'gui-builder', 'skin-chooser', 'desktop-icon', 'input-methods', 'language', 'window-switcher', 'web-browser'],
+    parser.add_argument('--radio-globe-interaction', action='store_true', help='drag and wheel Demos > RadioGlobe and require the Earth to change')
+    parser.add_argument('--menu-app', choices=['tetris', 'oberon', 'log', 'clock', 'calendar', 'shell', 'files', 'tutorial', 'chinese-tutorial', 'pet', 'search', 'scribble', 'bunny', '3d-explorer', 'turing', 'radio-globe', 'hex-editor', 'key-codes', 'color-picker', 'text-styles', 'image-viewer', 'graph-demos', 'drawing-overlay', 'on-screen-message', 'module-state', 'backdrops', 'gfx-spiral', 'slideshow', 'task-scheduler', 'performance', 'ftp-client', 'skin-editor', 'interpreter-shell', 'gui-builder', 'skin-chooser', 'desktop-icon', 'input-methods', 'language', 'window-switcher', 'web-browser'],
                         help='click a native A2 menu application and inspect the resulting window')
     parser.add_argument('--backdrop-select', action='store_true',
                         help='select Mars in the Backdrops picker and require the desktop background to change')
@@ -68,6 +69,8 @@ def main():
         parser.error('--backdrop-select requires --menu-app backdrops')
     if args.three_d_zoom and args.menu_app != '3d-explorer':
         parser.error('--three-d-zoom requires --menu-app 3d-explorer')
+    if args.radio_globe_interaction and args.menu_app != 'radio-globe':
+        parser.error('--radio-globe-interaction requires --menu-app radio-globe')
     host, guest = socket.socketpair()
     env = os.environ.copy()
     core_dir = Path(args.core).resolve().parent
@@ -113,6 +116,7 @@ def main():
                      'pet': (205, 90, 738), 'search': (270, 90, 738),
                      'scribble': (150, 270, 738), 'bunny': (150, 270, 756),
                      '3d-explorer': (150, 450, 738), 'turing': (150, 450, 756),
+                     'radio-globe': (150, 630, 738),
                      'hex-editor': (205, 630, 738), 'key-codes': (205, 630, 756),
                      'color-picker': (270, 630, 738), 'text-styles': (270, 630, 756),
                      'image-viewer': (340, 90, 738), 'graph-demos': (340, 90, 756),
@@ -136,6 +140,9 @@ def main():
     backdrop_index = 0; backdrop_pixel_before = None; backdrop_sent_at = None
     three_d_drag_index = 0; three_d_drag_before = None; three_d_drag_sent_at = None
     three_d_drag_events = [(350, 300, 0), (350, 300, 4), (350, 450, 4), (350, 450, 0)]
+    radio_drag_index = 0; radio_drag_before = None; radio_drag_sent_at = None
+    radio_drag_events = [(400, 300, 0), (400, 300, 1), (470, 320, 1), (470, 320, 0)]
+    radio_wheel_index = 0; radio_wheel_before = None; radio_wheel_sent_at = None
     tetris_start_sent = False; tetris_game_initial = None; tetris_game_flushes = 0; tetris_game_at = None
     shell_text = ('\n' if args.paste_shell_command or args.pie_shell_command else args.shell_command + '\n') if args.shell_command else ''
     shell_typed = 0; shell_done = None; shell_pasted = False; shell_window_initial = None; pet_click_index = 0
@@ -287,7 +294,7 @@ def main():
                     raise RuntimeError(f'{menu_app} did not paint a window')
                 if menu_app == 'oberon' and pixels[(200 * screen_width + 200) * 3] < 200:
                     raise RuntimeError('Oberon viewer area is still blank')
-                if not play_tetris and not args.shell_command and not args.backdrop_select and not args.three_d_zoom:
+                if not play_tetris and not args.shell_command and not args.backdrop_select and not args.three_d_zoom and not args.radio_globe_interaction:
                     print(f'PASS: {menu_app} menu command painted a window')
                     return
             if args.three_d_zoom and tetris_sent_at is not None and time.monotonic() - tetris_sent_at > 2 and three_d_drag_index < len(three_d_drag_events) and mouse_tag is not None and time.monotonic() >= next_event:
@@ -303,6 +310,30 @@ def main():
                 if three_d_drag_after == three_d_drag_before:
                     raise RuntimeError('right-button drag did not zoom the 3D scene')
                 print('PASS: right-button drag zoomed the 3D scene')
+                return
+            if args.radio_globe_interaction and tetris_sent_at is not None and time.monotonic() - tetris_sent_at > 2 and radio_drag_index < len(radio_drag_events) and mouse_tag is not None and time.monotonic() >= next_event:
+                if radio_drag_before is None:
+                    radio_drag_before = hashlib.sha256(b''.join(pixels[(y * screen_width + 200) * 3:(y * screen_width + 350) * 3] for y in range(170, 450))).digest()
+                x, y, button = radio_drag_events[radio_drag_index]
+                event = ('m' + ''.join(f'{n:11d} ' for n in [x, y, button, 10000 + radio_drag_index * 300])).encode()
+                host.sendall(packet(117, mouse_tag, struct.pack('<I', len(event)) + event))
+                mouse_tag = None; radio_drag_index += 1; next_event = time.monotonic() + 0.4
+                if radio_drag_index == len(radio_drag_events): radio_drag_sent_at = time.monotonic()
+            if radio_drag_sent_at is not None and time.monotonic() - radio_drag_sent_at > 1:
+                radio_drag_after = hashlib.sha256(b''.join(pixels[(y * screen_width + 200) * 3:(y * screen_width + 350) * 3] for y in range(170, 450))).digest()
+                if radio_drag_after == radio_drag_before:
+                    raise RuntimeError('left-button drag did not rotate the RadioGlobe')
+                radio_wheel_before = radio_drag_after; radio_drag_sent_at = None
+            if radio_wheel_before is not None and radio_wheel_index < 2 and mouse_tag is not None and time.monotonic() >= next_event:
+                event = ('m' + ''.join(f'{n:11d} ' for n in [470, 320, [16, 0][radio_wheel_index], 12000 + radio_wheel_index * 300])).encode()
+                host.sendall(packet(117, mouse_tag, struct.pack('<I', len(event)) + event))
+                mouse_tag = None; radio_wheel_index += 1; next_event = time.monotonic() + 0.4
+                if radio_wheel_index == 2: radio_wheel_sent_at = time.monotonic()
+            if radio_wheel_sent_at is not None and time.monotonic() - radio_wheel_sent_at > 1:
+                radio_wheel_after = hashlib.sha256(b''.join(pixels[(y * screen_width + 200) * 3:(y * screen_width + 350) * 3] for y in range(170, 450))).digest()
+                if radio_wheel_after == radio_wheel_before:
+                    raise RuntimeError('wheel did not zoom the RadioGlobe')
+                print('PASS: left-button drag rotated and wheel zoomed the RadioGlobe')
                 return
             if args.backdrop_select and tetris_sent_at is not None and time.monotonic() - tetris_sent_at > 2 and backdrop_index < 3 and mouse_tag is not None and time.monotonic() >= next_event:
                 if backdrop_index == 0:
