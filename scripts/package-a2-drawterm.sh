@@ -31,6 +31,7 @@ sed -e 's/name="WMPerfMonPluginMessages" value="TRUE"/name="WMPerfMonPluginMessa
     "$output/data/Configuration.XML" > "$output/data/Configuration.XML.native"
 mv -f "$output/data/Configuration.XML.native" "$output/data/Configuration.XML"
 cp "$repo/README-native-desktop.md" "$output/README.md"
+cp "$repo/scripts/pet-assist.sh" "$output/pet-assist.sh"
 clang -arch arm64 -mmacosx-version-min="$minimum_macos" -std=gnu11 -O2 -Wall -Wextra \
     "$repo/scripts/a2-drawterm.c" -o "$launcher_tmp"
 mv -f "$launcher_tmp" "$output/a2"

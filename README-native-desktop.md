@@ -127,6 +127,15 @@ To edit and compile the example in PET, copy it into your launch
 directory, run `PET.Open NativeDesktopHello.Mod` in BlueShell, then click
 **Compile**. PET's Fox compiler uses the DarwinA2 AArch64 target here.
 
+For a first PET assistant experiment, select source text in PET and run
+`PETAssistant.Prepare` in BlueShell. That writes `PETAssistant.Selection.txt`
+in the launch directory. From the Mac terminal in that directory, run
+`/path/to/a2-bundle/pet-assist.sh "What could be improved here?"`.
+The script uses the host Codex CLI in read-only mode and saves its answer as
+`PETAssistant.Response.txt`. Open it in BlueShell with
+`PET.Open PETAssistant.Response.txt`. The assistant does not change, compile,
+or load the selected module.
+
 For your own module, use the same compiler options with its `.Mod` filename.
 Exported command procedures can be invoked as `Module.Procedure` in BlueShell.
 The launcher includes its own directory, the launch directory, and `data` in
