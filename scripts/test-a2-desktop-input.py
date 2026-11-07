@@ -36,7 +36,7 @@ def main():
     parser.add_argument('--tetris', action='store_true', help='click Demos > Tetris and require a painted game window')
     parser.add_argument('--tetris-play', action='store_true', help='start Tetris with Space and require an updated game board')
     parser.add_argument('--tetris-shutdown', action='store_true', help='start Tetris, then shut A2 down from the menu')
-    parser.add_argument('--menu-app', choices=['tetris', 'oberon', 'log', 'clock', 'calendar', 'shell', 'files', 'tutorial', 'chinese-tutorial', 'pet', 'search', 'scribble', 'bunny', 'hex-editor', 'key-codes', 'color-picker', 'text-styles', 'image-viewer', 'graph-demos', 'drawing-overlay', 'on-screen-message', 'module-state', 'backdrops', 'gfx-spiral', 'slideshow', 'task-scheduler', 'performance', 'ftp-client', 'skin-editor', 'interpreter-shell', 'gui-builder', 'skin-chooser', 'desktop-icon', 'input-methods', 'language', 'window-switcher', 'web-browser'],
+    parser.add_argument('--menu-app', choices=['tetris', 'oberon', 'log', 'clock', 'calendar', 'shell', 'files', 'tutorial', 'chinese-tutorial', 'pet', 'search', 'scribble', 'bunny', '3d-explorer', 'turing', 'hex-editor', 'key-codes', 'color-picker', 'text-styles', 'image-viewer', 'graph-demos', 'drawing-overlay', 'on-screen-message', 'module-state', 'backdrops', 'gfx-spiral', 'slideshow', 'task-scheduler', 'performance', 'ftp-client', 'skin-editor', 'interpreter-shell', 'gui-builder', 'skin-chooser', 'desktop-icon', 'input-methods', 'language', 'window-switcher', 'web-browser'],
                         help='click a native A2 menu application and inspect the resulting window')
     parser.add_argument('--backdrop-select', action='store_true',
                         help='select Mars in the Backdrops picker and require the desktop background to change')
@@ -109,6 +109,7 @@ def main():
                      'tutorial': (114, 270, 738), 'chinese-tutorial': (114, 270, 756),
                      'pet': (205, 90, 738), 'search': (270, 90, 738),
                      'scribble': (150, 270, 738), 'bunny': (150, 270, 756),
+                     '3d-explorer': (150, 450, 738), 'turing': (150, 450, 756),
                      'hex-editor': (205, 630, 738), 'key-codes': (205, 630, 756),
                      'color-picker': (270, 630, 738), 'text-styles': (270, 630, 756),
                      'image-viewer': (340, 90, 738), 'graph-demos': (340, 90, 756),

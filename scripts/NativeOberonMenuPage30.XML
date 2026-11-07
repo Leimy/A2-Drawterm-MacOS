@@ -46,4 +46,15 @@
       <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMBunny.Insert WMBunnyImages.tar://BunnyLinear.gif 8 40</CommandString></Properties></Standard:SystemCommand>
     </Standard:Button>
   </Standard:Panel>
+  <Standard:Panel>
+    <Properties><Alignment>1</Alignment><Bounds><Width>180</Width></Bounds></Properties>
+    <Standard:Button>
+      <Properties><Caption>3D Explorer</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>W3dExplorer.Open</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
+    <Standard:Button>
+      <Properties><Caption>Turing patterns</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>TuringCoatWnd.Open</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
+  </Standard:Panel>
 </Standard:Panel>

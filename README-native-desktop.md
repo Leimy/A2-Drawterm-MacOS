@@ -86,6 +86,9 @@ monitor with the Unix CPU, memory, network, event, and self-monitoring plugins.
 Device statistics plugins are disabled in this hosted build. **Tools > FTP
 client** opens A2's FTP interface; connecting to an external FTP server has
 not yet been verified. **Demos > Bunny** displays the bundled animated GIF.
+**Demos > 3D Explorer** opens the native software-rendered 3D viewer; drag
+with the left mouse button to rotate and use the right button to zoom.
+**Demos > Turing patterns** animates the reaction-diffusion simulation.
 The input-method selector offers Arabic, Armenian, Hebrew, Pinyin, Russian,
 Ukrainian, and Unicode entry; the language switcher and window switcher are
 also available from this page.
