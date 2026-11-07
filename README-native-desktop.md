@@ -131,7 +131,8 @@ For a first PET assistant experiment, select source text in PET and run
 `PETAssistant.Prepare` in BlueShell. That writes `PETAssistant.Selection.txt`
 in the launch directory. From the Mac terminal in that directory, run
 `/path/to/a2-bundle/pet-assist.sh "What could be improved here?"`.
-The script uses the host Codex CLI in read-only mode and saves its answer as
+The script finds the Codex executable on `PATH` or inside ChatGPT.app, uses it
+in read-only mode, and saves its answer as
 `PETAssistant.Response.txt`. Open it in BlueShell with
 `PET.Open PETAssistant.Response.txt`. The assistant does not change, compile,
 or load the selected module.
