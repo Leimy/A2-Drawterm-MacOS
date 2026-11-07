@@ -25,6 +25,7 @@ def main():
     parser.add_argument('--timeout', type=float, default=30)
     parser.add_argument('--open-notepad', action='store_true')
     parser.add_argument('--type-text', default='', help='type into Notepad after opening it')
+    parser.add_argument('--paint-stats', action='store_true', help='report framebuffer upload bytes and partial-width rectangles')
     parser.add_argument('--capture', type=Path, help='save the final framebuffer as a PPM')
     parser.add_argument('--resize', action='store_true', help='shrink/grow the screen before exercising widgets')
     parser.add_argument('--resize-menu', nargs='?', const='shrink', choices=['shrink', 'grow'],
@@ -97,6 +98,7 @@ def main():
     focus_event = 0; typed = 0; typing_done = None
     screen_width, screen_height = 1024, 768
     origin_x = origin_y = 0
+    upload_bytes = upload_count = partial_uploads = full_strip_bytes = 0
     pixels = bytearray(screen_width * screen_height * 3)
     resize_sizes = ([(640, 480), (1280, 900), (800, 600), (1024, 768)] if args.resize else
                     [(640, 480)] if args.resize_menu == 'shrink' else
@@ -242,6 +244,9 @@ def main():
                                 if image_id != 0 or not (0 <= left <= right <= screen_width and 0 <= top <= bottom <= screen_height):
                                     raise RuntimeError('invalid framebuffer upload')
                                 width = right - left
+                                upload_count += 1; upload_bytes += width * (bottom - top) * 4
+                                full_strip_bytes += screen_width * (bottom - top) * 4
+                                partial_uploads += width < screen_width
                                 if len(draw) != 21 + width * (bottom - top) * 4:
                                     raise RuntimeError('invalid framebuffer byte count')
                                 for row in range(top, bottom):
@@ -480,6 +485,9 @@ def main():
                     return
         raise RuntimeError('timed out waiting for desktop initialization or button callbacks')
     finally:
+        if args.paint_stats:
+            print(f'Paint stats: {upload_count} uploads, {partial_uploads} partial-width, '
+                  f'{upload_bytes} pixel bytes ({full_strip_bytes} with full-width strips)')
         if args.capture:
             args.capture.write_bytes(f'P6\n{screen_width} {screen_height}\n255\n'.encode() + pixels)
         selector.close(); host.close()

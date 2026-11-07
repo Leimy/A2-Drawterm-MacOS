@@ -217,6 +217,8 @@ TYPE
 			END;
 			canvas.SetColor(WMGraphics.White);
 			canvas.DrawString(16, 482, "Drag to rotate  |  wheel to zoom  |  globe preview (no audio yet)");
+			(* Desktop zoom otherwise bilinearly filters every enlarged motion frame. *)
+			HintReduceQuality(coarse);
 			Swap;
 			Invalidate(WMRectangles.MakeRect(0, 0, Width, Height))
 		END Render;

@@ -124,9 +124,10 @@ TYPE
 		END Transfer;
 
 		PROCEDURE UploadRect(): BOOLEAN;
-		VAR y, n, rows, rowBytes, bytes, i: SIZE;
+		VAR y, n, rows, rowBytes, screenStride, bytes, i, row: SIZE;
 		BEGIN
-			rowBytes := SIZE(width) * 4;
+			rowBytes := SIZE(dirtyRight - dirtyLeft) * 4;
+			screenStride := SIZE(width) * 4;
 			rows := (LEN(upload) - DrawHeaderSize) DIV rowBytes;
 			IF rows <= 0 THEN SetError("drawterm message cannot hold one screen row"); RETURN FALSE END;
 			y := dirtyTop;
@@ -134,11 +135,19 @@ TYPE
 				n := MIN(rows, SIZE(dirtyBottom) - y); bytes := n * rowBytes;
 				upload[0] := "y";
 				S.PUT(ADDRESSOF(upload[1]), SIGNED32(0));
-				S.PUT(ADDRESSOF(upload[5]), screenX);
+				S.PUT(ADDRESSOF(upload[5]), screenX + dirtyLeft);
 				S.PUT(ADDRESSOF(upload[9]), screenY + SIGNED32(y));
-				S.PUT(ADDRESSOF(upload[13]), screenX + width);
+				S.PUT(ADDRESSOF(upload[13]), screenX + dirtyRight);
 				S.PUT(ADDRESSOF(upload[17]), screenY + SIGNED32(y + n));
-				S.MOVE(ADDRESSOF(framebuffer[y * rowBytes]), ADDRESSOF(upload[DrawHeaderSize]), bytes);
+				IF rowBytes = screenStride THEN
+					S.MOVE(ADDRESSOF(framebuffer[y * screenStride]), ADDRESSOF(upload[DrawHeaderSize]), bytes)
+				ELSE
+					(* Pack the dirty columns; framebuffer rows still have full-screen stride. *)
+					FOR row := 0 TO n - 1 DO
+						S.MOVE(ADDRESSOF(framebuffer[(y + row) * screenStride + SIZE(dirtyLeft) * 4]),
+							ADDRESSOF(upload[DrawHeaderSize + row * rowBytes]), rowBytes)
+					END
+				END;
 				(* A2's framebuffer alpha is unused; drawterm's screen is opaque. *)
 				i := DrawHeaderSize + 3;
 				WHILE i < DrawHeaderSize + bytes DO upload[i] := 0FFX; INC(i, 4) END;

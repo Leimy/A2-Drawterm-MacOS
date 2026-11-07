@@ -98,7 +98,12 @@ runtime. Drag and release to spin the globe; friction gradually stops it, and
 pressing the left button grabs and stops it immediately. The motion follows
 [libview's orbit controller](https://github.com/Leimy/libview/blob/master/orbit.c),
 with decay based on elapsed time. The globe renders a quicker preview during
-motion and restores full detail when it stops.
+motion and restores full detail when it stops. During desktop magnification,
+moving frames use nearest-neighbor scaling; smooth scaling returns at rest.
+The drawterm driver uploads only the changed rectangle, including its horizontal
+bounds. `NativeScaleBenchmark.Mod` measures the CPU scaling cost separately from
+globe rendering and drawterm transport; `--paint-stats` on
+`scripts/test-a2-desktop-input.py` reports upload volume.
 The input-method selector offers Arabic, Armenian, Hebrew, Pinyin, Russian,
 Ukrainian, and Unicode entry; the language switcher and window switcher are
 also available from this page.
