@@ -82,7 +82,7 @@ TYPE
 			"Press left mouse button and move mouse to rotate");
 			WMGraphics.DrawStringInRect(mc, WMRectangles.MakeRect(0, 25, 300, 50), FALSE,
 				WMGraphics.AlignCenter, WMGraphics.AlignTop,
-			"Additionally press right button to zoom");
+			"Drag right button vertically to zoom");
 			Render;
 		END Init;
 
@@ -126,12 +126,12 @@ TYPE
 
 		PROCEDURE PointerMove*(x, y: SIZE; keys : SET);
 		BEGIN
-			IF mouseKeys * {0} # {} THEN
-				IF mouseKeys * {2} # {} THEN
-					radius := radius - (y - oldY) * 10; IF radius < 10 THEN radius := 10 END;
-				ELSE
-					height := height + (y - oldY)
-				END;
+			mouseKeys := (keys * {0, 1, 2});
+			IF mouseKeys * {2} # {} THEN
+				radius := radius - (y - oldY) * 10; IF radius < 10 THEN radius := 10 END;
+				Render
+			ELSIF mouseKeys * {0} # {} THEN
+				height := height + (y - oldY);
 				angle := angle - (x - oldX) / img.width * 3.141;
 				Render
 			END;
