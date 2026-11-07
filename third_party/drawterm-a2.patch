@@ -101,7 +101,7 @@ index 0e8a436..190e106 100644
  .B -G
  Start drawterm in text-only mode (no graphics).
 diff --git a/gui-cocoa/screen.m b/gui-cocoa/screen.m
-index cc2a1c8..6e64141 100644
+index cc2a1c8..21e0b09 100644
 --- a/gui-cocoa/screen.m
 +++ b/gui-cocoa/screen.m
 @@ -27,6 +27,7 @@
@@ -352,7 +352,18 @@ index cc2a1c8..6e64141 100644
  static uint
  evkey(uint v)
  {
-@@ -1065,7 +1127,6 @@ - (id) init {
+@@ -758,6 +820,10 @@ - (void) mouseevent:(NSEvent*)event
+ 	NSUInteger u;
+ 	NSEventModifierFlags m;
+ 
++	/* Cocoa delivers mouse moves before the first /dev/draw attach. */
++	if(gscreen == nil)
++		return;
++
+ 	p = [self convertPoint:[event locationInWindow] fromView:nil];
+ 	p = scalemouse(p, self.window);
+ 	u = [NSEvent pressedMouseButtons];
+@@ -1065,7 +1131,6 @@ - (id) init {
  	self.pixelFormat = MTLPixelFormatBGRA8Unorm;
  	self.framebufferOnly = YES;
  	self.opaque = YES;
