@@ -94,7 +94,8 @@ Leimbach's [9front radioglobe](https://github.com/leimy/radioglobe). Drag the
 globe with the left mouse button to rotate; use the wheel to zoom. This first
 preview has no station markers or audio playback. Its bundled 1024x512 Earth
 texture is downsampled from radioglobe's `earth.mask`; no Python is needed at
-runtime.
+runtime. The globe renders a quicker preview while dragging and restores full
+detail when the button is released.
 The input-method selector offers Arabic, Armenian, Hebrew, Pinyin, Russian,
 Ukrainian, and Unicode entry; the language switcher and window switcher are
 also available from this page.
