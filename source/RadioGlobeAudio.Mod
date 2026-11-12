@@ -1,6 +1,6 @@
 MODULE RadioGlobeAudio;
 
-IMPORT Commands, Files, Codecs, MP3Decoder, SoundDevices, KernelLog;
+IMPORT Commands, Files, Codecs, MP3Decoder, SoundDevices, KernelLog, DarwinSound;
 
 PROCEDURE LE(w: Files.Writer; value: SIGNED32; bytes: SIGNED32);
 VAR i: SIGNED32;
@@ -54,5 +54,36 @@ BEGIN
 	KernelLog.String(" rate="); KernelLog.Int(rate, 0);
 	KernelLog.String(" channels="); KernelLog.Int(channels, 0); KernelLog.Ln
 END DecodeMP3;
+
+PROCEDURE PlayMP3*(context: Commands.Context);
+VAR input: Files.FileName; source: Files.File; r: Files.Reader;
+	decoder: Codecs.AudioDecoder; device: SoundDevices.Driver;
+	channel: SoundDevices.Channel; buffer: SoundDevices.Buffer;
+	channels, rate, bits: SIGNED32; res: INTEGER;
+BEGIN
+	channel := NIL;
+	IF ~context.arg.GetString(input) THEN
+		context.error.String("Usage: RadioGlobeAudio.PlayMP3 RadioGlobeTest.mp3"); context.error.Ln; RETURN
+	END;
+	source := Files.Old(input);
+	IF source = NIL THEN context.error.String("MP3 input not found"); context.error.Ln; RETURN END;
+	Files.OpenReader(r, source, 0);
+	decoder := MP3Decoder.Factory(); decoder.Open(r, res);
+	IF res # 0 THEN context.error.String("MP3 decoder rejected input"); context.error.Ln; RETURN END;
+	decoder.GetAudioInfo(channels, rate, bits);
+	device := DarwinSound.GetDevice();
+	IF device = NIL THEN context.error.String("Native audio driver unavailable"); context.error.Ln; RETURN END;
+	device.OpenPlayChannel(channel, rate, bits, channels, SoundDevices.FormatPCM, res);
+	IF channel = NIL THEN context.error.String("Cannot open macOS audio output"); context.error.Ln; RETURN END;
+	NEW(buffer); NEW(buffer.data, 4608); buffer.len := LEN(buffer.data^);
+	channel.Start;
+	WHILE decoder.HasMoreData() DO
+		decoder.FillBuffer(buffer); channel.QueueBuffer(buffer)
+	END;
+	channel.Close; channel := NIL;
+	KernelLog.String("Native MP3 playback complete"); KernelLog.Ln
+FINALLY
+	IF channel # NIL THEN channel.Close END
+END PlayMP3;
 
 END RadioGlobeAudio.

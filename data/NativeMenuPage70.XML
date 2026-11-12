@@ -90,5 +90,9 @@
       <Properties><Caption>FTP client</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
       <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMFTPClient.Open</CommandString></Properties></Standard:SystemCommand>
     </Standard:Button>
+    <Standard:Button>
+      <Properties><Caption>Audio mixer</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>System.DoCommands DarwinSound.Install ~ WMMixer.Open ~</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
   </Standard:Panel>
 </Standard:Panel>

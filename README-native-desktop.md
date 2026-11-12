@@ -113,7 +113,25 @@ bounds. `NativeScaleBenchmark.Mod` measures the CPU scaling cost separately from
 globe rendering and drawterm transport; `--paint-stats` on
 `scripts/test-a2-desktop-input.py` reports upload volume.
 
-The first RadioGlobe codec command is available in BlueShell:
+For native audio playback in BlueShell or the terminal Oberon shell, run
+`RadioGlobeAudio.PlayMP3 RadioGlobeTest.mp3`. The `DarwinSound` driver implements
+A2's `SoundDevices` interface using macOS AudioQueue. It supports mono/stereo,
+8/16-bit PCM and sample rates from 8 to 192 kHz. macOS mixes concurrent playback
+channels. Each channel has its own volume (256 = unity); the A2 output mixer
+adds volume and mute without changing the Mac's system volume. Each channel has bounded native
+buffers; AudioQueue callbacks remain in C, and reusable A2 buffers are returned
+after copying. Playback uses neither drawterm audio nor an external player.
+The command waits until the local file finishes playing; live streams and
+RadioGlobe's station UI remain pending. The native library `libA2Audio.dylib`
+must sit beside the `OberonLoader` executable, including for terminal-only use.
+`python3 scripts/test-a2-native-audio.py BUILD_DIRECTORY` plays the test clip
+twice and checks unloading and reinstalling the driver. It needs audio-device access.
+The probe also checks concurrent channels, volume/mute, buffer backpressure,
+resume, stop, and closing. Existing `SoundDevices` clients can select this driver
+after running `DarwinSound.Install`.
+The desktop offers **Demos > Audio test** and **Tools > Audio mixer**.
+
+The offline RadioGlobe codec command is also available in BlueShell:
 `RadioGlobeAudio.DecodeMP3 input.mp3 output.wav`. It uses A2's MP3 decoder and
 writes stereo 16-bit PCM WAV for a local MPEG-1 Layer III file. From the Mac
 terminal, `afplay output.wav` plays the result. Conversion currently stops at

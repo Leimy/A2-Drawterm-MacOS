@@ -57,5 +57,9 @@
       <Properties><Caption>Image grid</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
       <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMImageGrid.Test</CommandString></Properties></Standard:SystemCommand>
     </Standard:Button>
+    <Standard:Button>
+      <Properties><Caption>Audio test</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>RadioGlobeAudio.PlayMP3 RadioGlobeTest.mp3</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
   </Standard:Panel>
 </Standard:Panel>

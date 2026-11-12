@@ -40,7 +40,7 @@ def main():
     parser.add_argument('--three-d-zoom', action='store_true', help='right-drag in Demos > 3D Explorer and require the scene to change')
     parser.add_argument('--radio-globe-regression', action='store_true', help='check polar rendering, inertia, friction, grab and close')
     parser.add_argument('--radio-globe-interaction', action='store_true', help='drag and wheel Demos > RadioGlobe and require the Earth to change')
-    parser.add_argument('--menu-app', choices=['tetris', 'oberon', 'log', 'clock', 'calendar', 'shell', 'files', 'tutorial', 'chinese-tutorial', 'pet', 'search', 'scribble', 'bunny', '3d-explorer', 'turing', 'radio-globe', 'mandelbrot', 'figures', 'text-writer', 'image-grid', 'hex-editor', 'key-codes', 'color-picker', 'text-styles', 'image-viewer', 'graph-demos', 'drawing-overlay', 'on-screen-message', 'module-state', 'backdrops', 'gfx-spiral', 'slideshow', 'task-scheduler', 'performance', 'ftp-client', 'skin-editor', 'interpreter-shell', 'gui-builder', 'skin-chooser', 'desktop-icon', 'input-methods', 'language', 'window-switcher', 'web-browser'],
+    parser.add_argument('--menu-app', choices=['tetris', 'oberon', 'log', 'clock', 'calendar', 'shell', 'files', 'tutorial', 'chinese-tutorial', 'pet', 'search', 'scribble', 'bunny', '3d-explorer', 'turing', 'radio-globe', 'mandelbrot', 'figures', 'text-writer', 'image-grid', 'audio-test', 'audio-mixer', 'hex-editor', 'key-codes', 'color-picker', 'text-styles', 'image-viewer', 'graph-demos', 'drawing-overlay', 'on-screen-message', 'module-state', 'backdrops', 'gfx-spiral', 'slideshow', 'task-scheduler', 'performance', 'ftp-client', 'skin-editor', 'interpreter-shell', 'gui-builder', 'skin-chooser', 'desktop-icon', 'input-methods', 'language', 'window-switcher', 'web-browser'],
                         help='click a native A2 menu application and inspect the resulting window')
     parser.add_argument('--backdrop-select', action='store_true',
                         help='select Mars in the Backdrops picker and require the desktop background to change')
@@ -127,7 +127,8 @@ def main():
                      '3d-explorer': (150, 450, 738), 'turing': (150, 450, 756),
                      'radio-globe': (150, 630, 738), 'mandelbrot': (150, 630, 756),
                      'figures': (150, 750, 738), 'text-writer': (150, 750, 756),
-                     'image-grid': (150, 900, 738),
+                     'image-grid': (150, 900, 738), 'audio-test': (150, 900, 756),
+                     'audio-mixer': (270, 810, 756),
                      'hex-editor': (205, 630, 738), 'key-codes': (205, 630, 756),
                      'color-picker': (270, 630, 738), 'text-styles': (270, 630, 756),
                      'image-viewer': (340, 90, 738), 'graph-demos': (340, 90, 756),
@@ -310,6 +311,8 @@ def main():
                     raise RuntimeError('Oberon viewer area is still blank')
                 if not play_tetris and not args.shell_command and not args.backdrop_select and not args.three_d_zoom and not args.radio_globe_interaction and not args.radio_globe_regression:
                     if menu_app == 'mandelbrot' and 'Mandelbrot render complete' not in output:
+                        continue
+                    if menu_app == 'audio-test' and 'Native MP3 playback complete' not in output:
                         continue
                     print(f'PASS: {menu_app} menu command painted a window')
                     return

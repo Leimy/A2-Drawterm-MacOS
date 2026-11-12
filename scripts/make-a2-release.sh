@@ -14,7 +14,7 @@ mkdir -p "$(dirname -- "$2")"
 archive=$(CDPATH= cd -- "$(dirname -- "$2")" && pwd)/$(basename -- "$2")
 case "$archive" in *.zip) ;; *) printf 'Output must end in .zip\n' >&2; exit 2;; esac
 
-for file in a2 OberonLoader drawterm DarwinAosDrawtermDesktopAa; do
+for file in a2 OberonLoader drawterm DarwinAosDrawtermDesktopAa libA2Audio.dylib; do
     test -s "$desktop/$file"
 done
 test -d "$desktop/data"
@@ -28,7 +28,7 @@ trap 'rm -rf "$stage"' EXIT HUP INT TERM
 name=A2-Darwin-arm64-preview
 mkdir -p "$stage/$name/toolchain"
 cp "$desktop/a2" "$desktop/OberonLoader" "$desktop/drawterm" \
-   "$desktop/DarwinAosDrawtermDesktopAa" "$stage/$name/"
+   "$desktop/DarwinAosDrawtermDesktopAa" "$desktop/libA2Audio.dylib" "$stage/$name/"
 for file in "$desktop"/*.GofAa "$desktop"/*.SymAa; do
     test -f "$file" || continue
     cp "$file" "$stage/$name/"

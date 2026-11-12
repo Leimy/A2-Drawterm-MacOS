@@ -15,10 +15,14 @@ test -x "$drawterm"
 loader_tmp="$output/.OberonLoader.new.$$"
 drawterm_tmp="$output/.drawterm.new.$$"
 launcher_tmp="$output/.a2.new.$$"
-trap 'rm -f "$loader_tmp" "$drawterm_tmp" "$launcher_tmp"' EXIT HUP INT TERM
+audio_tmp="$output/.libA2Audio.new.$$"
+trap 'rm -f "$loader_tmp" "$drawterm_tmp" "$launcher_tmp" "$audio_tmp"' EXIT HUP INT TERM
 clang -arch arm64 -mmacosx-version-min="$minimum_macos" -std=gnu11 -O2 -Wall -Wextra \
     "$repo/UnixAos/boot/OberonLoader.c" -o "$loader_tmp"
 cp "$drawterm" "$drawterm_tmp"
+clang -arch arm64 -mmacosx-version-min="$minimum_macos" -dynamiclib -O2 -Wall -Wextra \
+    "$repo/UnixAos/boot/DarwinAudio.c" -framework AudioToolbox -o "$audio_tmp"
+mv -f "$audio_tmp" "$output/libA2Audio.dylib"
 mv -f "$loader_tmp" "$output/OberonLoader"
 mv -f "$drawterm_tmp" "$output/drawterm"
 mkdir -p "$output/data"
