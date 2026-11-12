@@ -112,6 +112,14 @@ The drawterm driver uploads only the changed rectangle, including its horizontal
 bounds. `NativeScaleBenchmark.Mod` measures the CPU scaling cost separately from
 globe rendering and drawterm transport; `--paint-stats` on
 `scripts/test-a2-desktop-input.py` reports upload volume.
+
+The first RadioGlobe codec command is available in BlueShell:
+`RadioGlobeAudio.DecodeMP3 input.mp3 output.wav`. It uses A2's MP3 decoder and
+writes stereo 16-bit PCM WAV for a local MPEG-1 Layer III file. From the Mac
+terminal, `afplay output.wav` plays the result. Conversion currently stops at
+ten minutes and can pad the final PCM block; streaming and playback inside
+RadioGlobe are still pending. `python3 scripts/test-a2-mp3.py BUILD_DIRECTORY`
+checks generated MP3 silence through the decoder and validates the WAV output.
 The input-method selector offers Arabic, Armenian, Hebrew, Pinyin, Russian,
 Ukrainian, and Unicode entry; the language switcher and window switcher are
 also available from this page.

@@ -1758,6 +1758,7 @@ VAR f: Files.File;
 		tableNo, i : SIGNED16;
 BEGIN
 	f := Files.Old("MP3Huffman.Bin");
+	ASSERT(f # NIL, 101);
 	Files.OpenReader(r, f, 0);
 	tableNo:=0;
 		LOOP
@@ -2107,7 +2108,8 @@ BEGIN
 	DCTCOS[1][0] := Math32.cos((2 * 1 + 1) * 0 * (Math32.pi/4));
 	DCTCOS[1][1] := Math32.cos((2 * 1 + 1) * 1 * (Math32.pi/4));
 
-	FOR j:=0 TO 32 DO
+	(* A zero-length DCT is never used; j=0 evaluates cos(infinity). *)
+	FOR j:=1 TO 32 DO
 		FOR i:= 0 TO 15 DO
 			DCTTWIDDLE[i][j] := 1.0 / (2.0 * Math32.cos((2 * i + 1) * (Math32.pi / (2 * j))));
 		END;

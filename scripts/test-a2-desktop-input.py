@@ -309,6 +309,8 @@ def main():
                 if menu_app == 'oberon' and pixels[(200 * screen_width + 200) * 3] < 200:
                     raise RuntimeError('Oberon viewer area is still blank')
                 if not play_tetris and not args.shell_command and not args.backdrop_select and not args.three_d_zoom and not args.radio_globe_interaction and not args.radio_globe_regression:
+                    if menu_app == 'mandelbrot' and 'Mandelbrot render complete' not in output:
+                        continue
                     print(f'PASS: {menu_app} menu command painted a window')
                     return
             if args.three_d_zoom and tetris_sent_at is not None and time.monotonic() - tetris_sent_at > 2 and three_d_drag_index < len(three_d_drag_events) and mouse_tag is not None and time.monotonic() >= next_event:

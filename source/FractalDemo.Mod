@@ -144,6 +144,7 @@ TYPE
 
 		PROCEDURE Recalc;
 		VAR w, h, p, i, j: SIZE;
+			workers: SIGNED32;
 			str : ARRAY 32 OF CHAR;
 			t : Kernel.MilliTimer;
 			t2 : SIGNED32;
@@ -156,12 +157,15 @@ TYPE
 			w := bounds.GetWidth(); h := bounds.GetHeight();
 			IF w <= 0 THEN w := 1 END; IF h <= 0 THEN h := 1 END;
 
+			workers := nofProcesses.Get();
+			IF workers < 1 THEN workers := 1 ELSIF workers > 32 THEN workers := 32 END;
+			nofProcesses.Set(workers);
 			NEW(workQ); NEW(resultQ);
-			NEW(processes, nofProcesses.Get());
+			NEW(processes, workers);
 			Kernel.SetTimer(t, 0);
 
 			(* initialize processes *)
-			FOR p := 0 TO nofProcesses.Get() - 1 DO NEW(processes[p], workQ, resultQ) END;
+			FOR p := 0 TO workers - 1 DO NEW(processes[p], workQ, resultQ) END;
 
 			dy := (list.y1 - list.y0) / h;
 			(* fill workQ *)
@@ -182,7 +186,7 @@ TYPE
 			END;
 
 			(* send killer workunits *)
-			FOR i := 0 TO nofProcesses.Get() - 1 DO
+			FOR i := 0 TO workers - 1 DO
 				NEW(wu); wu.terminate := TRUE;
 				workQ.Add(wu)
 			END;
@@ -198,8 +202,9 @@ TYPE
 			KernelLog.String(" depth = "); KernelLog.Int(list.depth,0); KernelLog.Ln;
 			KernelLog.Exit;
 			recalcNeeded := FALSE;
+			calculating := FALSE;
 			Invalidate;
-			calculating := FALSE
+			KernelLog.String("Mandelbrot render complete"); KernelLog.Ln
 		END Recalc;
 
 		PROCEDURE PointerDown*(x,y : SIZE; keys : SET);
@@ -323,6 +328,7 @@ PROCEDURE InitPrototypes;
 BEGIN
 	StrMandelbrotSetViewer := Strings.NewString("MandelbrotSetViewer");
 	NEW(PrototypeNofProcesses, NIL, Strings.NewString("NofProcesses"), Strings.NewString("number of processes to use"));
+	PrototypeNofProcesses.Set(4);
 END InitPrototypes;
 
 BEGIN
