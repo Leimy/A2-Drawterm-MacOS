@@ -14,3 +14,12 @@ RadioGlobeTest-Mono.aac uses a mono 48 kHz version to test channel mapping
 and resampling into stereo 44.1 kHz output.
 The AAC fixture was generated with macOS AudioToolbox; the Vorbis fixture
 with Xiph libvorbis 1.3.7. The signal and these fixtures are also CC0.
+
+RadioGlobeTest.flac and RadioGlobeTest.opus are original two-second tone
+fixtures (440 Hz then 660 Hz, amplitude 6000), also CC0. The FLAC fixture
+uses macOS afconvert, stereo 16-bit 44.1 kHz. Opus was encoded with Xiph
+libopus 1.5.2 at 96 kbit/s stereo 48 kHz using 20 ms frames, with libogg
+1.3.5 framing. Its pre-skip and final granule position preserve exactly
+96,000 source samples (88,200 after resampling); no encoder is needed at runtime.
+RadioGlobeTest-FLAC.ogg wraps the same FLAC audio frames in Ogg mapping
+version 1.0 with STREAMINFO and a minimal Vorbis comment block (libogg 1.3.5).

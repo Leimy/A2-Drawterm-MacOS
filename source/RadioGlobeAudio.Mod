@@ -205,7 +205,11 @@ BEGIN
 	END;
 	IF native THEN NEW(nativeDecoder); decoder := nativeDecoder ELSE decoder := MP3Decoder.Factory() END;
 	decoder.Open(r, res);
-	IF res # 0 THEN context.error.String("MP3 decoder rejected input"); context.error.Ln; RETURN END;
+	IF res # 0 THEN
+		IF native THEN context.error.String("Native audio decode failed: "); context.error.Int(nativeDecoder.error, 0)
+		ELSE context.error.String("MP3 decoder rejected input") END;
+		context.error.Ln; RETURN
+	END;
 	decoder.GetAudioInfo(channels, rate, bits);
 	IF (channels < 1) OR (channels > 2) OR (rate <= 0) OR (bits # 16) THEN
 		context.error.String("Unsupported MP3 output format"); context.error.Ln; RETURN

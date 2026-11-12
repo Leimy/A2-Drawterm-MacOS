@@ -167,15 +167,25 @@ HTTP/HTTPS transport uses macOS's system libcurl in `libA2Radio.dylib`, beside
 handles HTTP chunking and legacy `ICY 200 OK`, and buffers at most 64 KiB with
 a 16 KiB startup target. Active Oberon removes ICY metadata from the audio and
 prints `StreamTitle` updates in the launch terminal. Radio playback decodes
-MP3 and AAC/AAC+ with macOS AudioFileStream/AudioConverter; Ogg Vorbis uses the
+MP3, AAC/AAC+, native/Ogg FLAC and Ogg Opus with macOS AudioToolbox; Ogg Vorbis uses the
 bundled MIT-licensed `stb_vorbis` decoder and system PCM conversion. Vorbis
 logical-stream changes are handled so changing tracks can supply new headers
 and codebooks. Output is converted to stereo 44.1 kHz PCM for the native sound
 driver. The original Active Oberon MP3 decoder remains available for local
 MP3 playback and `DecodeMP3`. Stop cancels network reads and playback; connection failures
 and end-of-stream release both resources. Streams are not automatically reconnected.
-Use a direct MP3, ADTS AAC/AAC+, or Ogg Vorbis mount URL. Opus, FLAC, HLS and
-playlist-file resolution are not implemented. The catalogue retains those entries
+Live MP3/AAC connections may begin partway through a frame; the decoder searches
+for two consistent adjacent frame headers before handing audio to the system parser.
+Ogg Opus/FLAC have bounded page/packet assembly, page CRC and sequence validation,
+EOS trimming and chained-stream handling. Opus applies pre-skip and output gain. Cached Icecast
+headers followed by the current live page sequence are accepted. Opus mapping
+family zero (mono/stereo) is supported; multichannel mapping is not implemented.
+Native FLAC uses bounded frame assembly with CRC8/CRC16 validation, and uses
+STREAMINFO for exact finite-file duration. FLAC frames are passed directly to
+AudioConverter, bypassing the system incremental FLAC file parser. Opus/FLAC require the system AudioToolbox decoder;
+there are no extra installed libraries or helper processes.
+Use a direct MP3, ADTS AAC/AAC+, native/Ogg FLAC, Ogg Opus or Ogg Vorbis mount URL.
+HLS and playlist-file resolution are not implemented. The catalogue retains those entries
 so its original data is preserved; the decoder reports unsupported streams.
 `python3 scripts/test-a2-radio.py BUILD_DIRECTORY` checks local plain/ICY/chunked
 streams, metadata boundaries, redirects, format/HTTP errors and cancellation.
@@ -183,8 +193,8 @@ Add `--playback --stations` to exercise local playback, map selection, station
 switching, rapid requests, browser search and module cleanup. This requires
 audio-codec/device access and does not contact a public station.
 `python3 scripts/test-a2-codecs.py BUILD_DIRECTORY` verifies pitch, amplitude and
-duration for generated MP3, AAC, AAC+ and Vorbis fixtures, including chained
-Vorbis tracks. `python3 scripts/test-a2-stations.py BUILD_DIRECTORY` checks the
+duration for generated MP3, AAC, AAC+, FLAC, Opus and Vorbis fixtures, including
+chained Vorbis/Opus/FLAC tracks, live Opus sequence offsets and MP3 frame synchronization. `python3 scripts/test-a2-stations.py BUILD_DIRECTORY` checks the
 catalogue snapshots, parsing, marker projection and picking. Pure globe geometry
 tests use an empty catalogue fixture to measure the texture independently of markers.
 
@@ -258,3 +268,14 @@ test -s NativeDesktopHello.GofAa
 ```
 
 The last command should print `native A2 desktop compiler demo ran`.
+
+The native bridge also has a fragmented-input sanitizer probe (from the repo root):
+
+```sh
+clang -arch arm64 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
+  tests/NativeRadioCodecProbe.c UnixAos/boot/DarwinCodecs.c \
+  -framework AudioToolbox -o /tmp/a2-codec-boundaries
+/tmp/a2-codec-boundaries data
+```
+
+It checks 1-, 7-, 137- and 4096-byte input fragments for every bundled codec fixture.

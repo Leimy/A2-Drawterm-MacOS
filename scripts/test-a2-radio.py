@@ -20,6 +20,12 @@ fixture = (bundle / 'data/RadioGlobeTest.mp3').read_bytes()
 codec_fixtures = {'/aac': (bundle / 'data/RadioGlobeTest.aac').read_bytes(),
                   '/aac-he': (bundle / 'data/RadioGlobeTest-HE.aac').read_bytes(),
                   '/vorbis': (bundle / 'data/RadioGlobeTest.ogg').read_bytes()}
+codec_fixtures['/opus'] = (bundle / 'data/RadioGlobeTest.opus').read_bytes()
+codec_fixtures['/flac'] = (bundle / 'data/RadioGlobeTest.flac').read_bytes()
+codec_fixtures['/ogg-flac'] = (bundle / 'data/RadioGlobeTest-FLAC.ogg').read_bytes()
+codec_fixtures['/ogg-flac-chain'] = codec_fixtures['/ogg-flac'] * 2
+codec_fixtures['/opus-chain'] = codec_fixtures['/opus'] * 2
+codec_fixtures['/mp3-prefix'] = bytes(range(128)) + fixture
 codec_fixtures['/vorbis-chain'] = codec_fixtures['/vorbis'] * 2
 interval = 997
 metadata = b"StreamTitle='A2 radio regression';"
@@ -65,7 +71,9 @@ class Handler(BaseHTTPRequestHandler):
         content_type = 'audio/mpeg'
         if self.path == '/html': content_type = 'text/html'
         elif self.path.startswith('/aac'): content_type = 'audio/aacp'
-        elif self.path.startswith('/vorbis'): content_type = 'audio/ogg'
+        elif self.path.startswith(('/vorbis', '/ogg-flac')): content_type = 'audio/ogg'
+        elif self.path.startswith('/opus'): content_type = 'audio/opus'
+        elif self.path.startswith('/flac'): content_type = 'audio/flac'
         self.send_header('Content-Type', content_type)
         self.send_header('Connection', 'close')
         body = fixture if self.path in ('/plain', '/stall') else icy
@@ -154,11 +162,11 @@ try:
                 assert 'Radio title: A2 radio regression' in output, output
             check_wav(path)
             print(f'RADIO PASS {endpoint}')
-        for endpoint in ('aac', 'aac-he', 'vorbis', 'vorbis-chain'):
+        for endpoint in ('aac', 'aac-he', 'vorbis', 'vorbis-chain', 'flac', 'opus', 'opus-chain', 'mp3-prefix', 'ogg-flac', 'ogg-flac-chain'):
             path = Path(temporary) / f'{endpoint}.wav'
             output = run('do', f'RadioGlobeAudio.DecodeNative {base}/{endpoint} {path}')
             assert 'Audio decoded bytes=' in output and 'Radio title: A2 radio regression' in output, output
-            check_wav(path, 2 if endpoint == 'vorbis-chain' else 1)
+            check_wav(path, 2 if endpoint in ('vorbis-chain', 'opus-chain', 'ogg-flac-chain') else 1)
             print(f'RADIO PASS {endpoint} with ICY metadata')
         for endpoint in ('missing', 'html', 'badmeta'):
             path = Path(temporary) / f'{endpoint}.wav'
