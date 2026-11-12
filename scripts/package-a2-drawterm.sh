@@ -25,7 +25,7 @@ clang -arch arm64 -mmacosx-version-min="$minimum_macos" -dynamiclib -O2 -Wall -W
     "$repo/UnixAos/boot/DarwinAudio.c" -framework AudioToolbox -o "$audio_tmp"
 mv -f "$audio_tmp" "$output/libA2Audio.dylib"
 clang -arch arm64 -mmacosx-version-min="$minimum_macos" -dynamiclib -O2 -Wall -Wextra \
-    "$repo/UnixAos/boot/DarwinRadio.c" -lcurl -o "$radio_tmp"
+    "$repo/UnixAos/boot/DarwinRadio.c" "$repo/UnixAos/boot/DarwinCodecs.c" -lcurl -framework AudioToolbox -o "$radio_tmp"
 mv -f "$radio_tmp" "$output/libA2Radio.dylib"
 mv -f "$loader_tmp" "$output/OberonLoader"
 mv -f "$drawterm_tmp" "$output/drawterm"
@@ -39,6 +39,7 @@ sed -e 's/name="WMPerfMonPluginMessages" value="TRUE"/name="WMPerfMonPluginMessa
     "$output/data/Configuration.XML" > "$output/data/Configuration.XML.native"
 mv -f "$output/data/Configuration.XML.native" "$output/data/Configuration.XML"
 cp "$repo/README-native-desktop.md" "$output/README.md"
+cp "$repo/third_party/stb-vorbis-LICENSE" "$output/LICENSE-stb-vorbis.txt"
 cp "$repo/scripts/pet-assist.sh" "$output/pet-assist.sh"
 clang -arch arm64 -mmacosx-version-min="$minimum_macos" -std=gnu11 -O2 -Wall -Wextra \
     "$repo/scripts/a2-drawterm.c" -o "$launcher_tmp"

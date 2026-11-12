@@ -12,6 +12,7 @@ import socket
 import struct
 import subprocess
 import time
+import tempfile
 
 
 def packet(kind, tag, payload=b''):
@@ -41,6 +42,7 @@ def main():
     parser.add_argument('--radio-globe-regression', action='store_true', help='check polar rendering, inertia, friction, grab and close')
     parser.add_argument('--radio-globe-interaction', action='store_true', help='drag and wheel Demos > RadioGlobe and require the Earth to change')
     parser.add_argument('--radio-globe-audio', action='store_true', help='click RadioGlobe Play radio and Stop and require streaming playback logs')
+    parser.add_argument('--radio-globe-stations', action='store_true', help='select a marker, switch stations, stop, and search the catalogue')
     parser.add_argument('--menu-app', choices=['tetris', 'oberon', 'log', 'clock', 'calendar', 'shell', 'files', 'tutorial', 'chinese-tutorial', 'pet', 'search', 'scribble', 'bunny', '3d-explorer', 'turing', 'radio-globe', 'mandelbrot', 'figures', 'text-writer', 'image-grid', 'audio-test', 'audio-mixer', 'hex-editor', 'key-codes', 'color-picker', 'text-styles', 'image-viewer', 'graph-demos', 'drawing-overlay', 'on-screen-message', 'module-state', 'backdrops', 'gfx-spiral', 'slideshow', 'task-scheduler', 'performance', 'ftp-client', 'skin-editor', 'interpreter-shell', 'gui-builder', 'skin-chooser', 'desktop-icon', 'input-methods', 'language', 'window-switcher', 'web-browser'],
                         help='click a native A2 menu application and inspect the resulting window')
     parser.add_argument('--backdrop-select', action='store_true',
@@ -76,12 +78,19 @@ def main():
         parser.error('--radio-globe-interaction requires --menu-app radio-globe')
     if args.radio_globe_audio and args.menu_app != 'radio-globe':
         parser.error('--radio-globe-audio requires --menu-app radio-globe')
+    if args.radio_globe_stations and args.menu_app != 'radio-globe':
+        parser.error('--radio-globe-stations requires --menu-app radio-globe')
     radio_checks = None
     if args.radio_globe_regression:
         if args.menu_app != 'radio-globe' or args.radio_globe_interaction:
             parser.error('--radio-globe-regression requires --menu-app radio-globe without --radio-globe-interaction')
         from a2_radio_globe_checks import RadioGlobeChecks
         radio_checks = RadioGlobeChecks(args.capture)
+    geometry_work = None
+    if args.radio_globe_regression:
+        geometry_work = tempfile.TemporaryDirectory(prefix='a2-globe-geometry-')
+        args.cwd = Path(geometry_work.name)
+        (args.cwd / 'RadioGlobeStations.txt').write_text('# Geometry fixture has no station overlays\n')
     host, guest = socket.socketpair()
     env = os.environ.copy()
     core_dir = Path(args.core).resolve().parent
@@ -161,6 +170,11 @@ def main():
     radio_audio_events = [(130, 560, 0), (130, 560, 1), (130, 560, 0),
                           (230, 560, 0), (230, 560, 1), (230, 560, 0)]
     radio_audio_index = 0
+    station_events = [(380, 318, 0), (380, 318, 2), (380, 318, 0),
+                      (440, 560, 0), (440, 560, 1), (440, 560, 0),
+                      (230, 560, 0), (230, 560, 1), (230, 560, 0),
+                      (310, 560, 0), (310, 560, 1), (310, 560, 0)]
+    station_event = 0; station_typed = 0; station_query = 'Test Two\n\n'
     tetris_start_sent = False; tetris_game_initial = None; tetris_game_flushes = 0; tetris_game_at = None
     shell_text = ('\n' if args.paste_shell_command or args.pie_shell_command else args.shell_command + '\n') if args.shell_command else ''
     shell_typed = 0; shell_done = None; shell_pasted = False; shell_window_initial = None; pet_click_index = 0
@@ -315,7 +329,7 @@ def main():
                     raise RuntimeError(f'{menu_app} did not paint a window')
                 if menu_app == 'oberon' and pixels[(200 * screen_width + 200) * 3] < 200:
                     raise RuntimeError('Oberon viewer area is still blank')
-                if not play_tetris and not args.shell_command and not args.backdrop_select and not args.three_d_zoom and not args.radio_globe_interaction and not args.radio_globe_regression and not args.radio_globe_audio:
+                if not play_tetris and not args.shell_command and not args.backdrop_select and not args.three_d_zoom and not args.radio_globe_interaction and not args.radio_globe_regression and not args.radio_globe_audio and not args.radio_globe_stations:
                     if menu_app == 'mandelbrot' and 'Mandelbrot render complete' not in output:
                         continue
                     if menu_app == 'audio-test' and 'Native MP3 playback complete' not in output:
@@ -356,6 +370,28 @@ def main():
                     if 'DarwinSound error' in output:
                         raise RuntimeError('Native audio failed during RadioGlobe playback')
                     print('PASS: RadioGlobe Play radio and Stop streamed audio with ICY metadata')
+                    return
+            if args.radio_globe_stations and tetris_sent_at is not None and time.monotonic() - tetris_sent_at > 2:
+                if station_event == 3 and output.count('Radio playing') < 1: continue
+                if station_event == 6 and output.count('Radio playing') < 2: continue
+                if station_event == 9 and output.count('Radio stopped') < 2: continue
+                if station_event < len(station_events) and mouse_tag is not None and time.monotonic() >= next_event:
+                    mouse = station_events[station_event]
+                    event = ('m' + ''.join(f'{n:11d} ' for n in [*mouse, int(time.monotonic()*1000) % 10000000])).encode()
+                    host.sendall(packet(117, mouse_tag, struct.pack('<I', len(event)) + event))
+                    mouse_tag = None; station_event += 1; next_event = time.monotonic() + 0.4
+                if ('Radio station browser opened' in output and station_typed < len(station_query) and
+                    keyboard_tag is not None and time.monotonic() >= next_event):
+                    char = station_query[station_typed].encode()
+                    event = b'r' + char + b'\0R' + char + b'\0'
+                    host.sendall(packet(117, keyboard_tag, struct.pack('<I', len(event)) + event))
+                    keyboard_tag = None; station_typed += 1; next_event = time.monotonic() + 0.3
+                if station_typed == len(station_query) and output.count('Radio playing') >= 3:
+                    if 'Radio station search: test two matches=1' not in output:
+                        raise RuntimeError('Station search did not find the requested station')
+                    if 'Radio station selected: Test One' not in output or output.count('Radio station selected: Test Two') < 2:
+                        raise RuntimeError('Station map, next button or search selection failed')
+                    print('PASS: station marker, automatic switch, stop, catalogue search and play')
                     return
             if args.radio_globe_interaction and tetris_sent_at is not None and time.monotonic() - tetris_sent_at > 2 and radio_drag_index < len(radio_drag_events) and mouse_tag is not None and time.monotonic() >= next_event:
                 if radio_drag_before is None:
@@ -520,6 +556,8 @@ def main():
         process.terminate()
         try: process.wait(timeout=2)
         except subprocess.TimeoutExpired: process.kill(); process.wait()
+        if geometry_work is not None:
+            geometry_work.cleanup()
 
 
 if __name__ == '__main__':

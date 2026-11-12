@@ -43,7 +43,9 @@ static size_t header(char *p, size_t size, size_t count, void *arg) {
         while (*value == ' ' || *value == '\t') value++;
         r->unsupported = !(type_is(value, "audio/mpeg") || type_is(value, "audio/mp3") ||
                           type_is(value, "audio/x-mpeg") || type_is(value, "application/octet-stream") ||
-                          type_is(value, "binary/octet-stream"));
+                          type_is(value, "binary/octet-stream") || type_is(value, "audio/aac") ||
+                          type_is(value, "audio/aacp") || type_is(value, "audio/x-aac") ||
+                          type_is(value, "audio/ogg") || type_is(value, "application/ogg"));
     } else if (n > 12 && !strncasecmp(p, "icy-metaint:", 12)) {
         long v = strtol(p + 12, NULL, 10);
         r->interval = v >= 0 && v <= 16777216 ? (int)v : -1;
@@ -113,7 +115,7 @@ static void *fetch(void *arg) {
 }
 
 void *a2radio_create(const char *url) {
-    if (!url || (strncmp(url, "http://", 7) && strncmp(url, "https://", 8)) || strlen(url) > 2048) return NULL;
+    if (!url || (strncmp(url, "http://", 7) && strncmp(url, "https://", 8)) || strlen(url) > 8192) return NULL;
     pthread_once(&initialized, initialize);
     Radio *r = calloc(1, sizeof *r);
     if (!r) return NULL;

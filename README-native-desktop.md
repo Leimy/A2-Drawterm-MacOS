@@ -99,12 +99,31 @@ globe with the left mouse button to rotate; use the wheel to zoom. This first
 preview keeps the globe circular when its window is resized. Wheel zoom can
 enlarge it beyond the window edges; rendering clips to the visible area.
 The application lives in `source/WMRadioGlobe.Mod`, with a separate Earth texture
-and shared A2 graphics and math modules. Station markers remain pending.
-The footer's **Play radio** and **Stop** buttons control an MP3 stream. The
+and shared A2 graphics and math modules. It loads **9,297 stations from the
+9front RadioGlobe catalogue**, with markers projected onto the visible hemisphere.
+Hover to see a name; click a marker or middle-click it to play. Dragging continues
+to rotate the globe. **Stations** opens a searchable list so colocated stations
+are all accessible. Type a name and press Enter, then select a row and click
+**Play**; when a search has one match, Enter again plays it. Selecting from the
+list centers the globe on that station. **Prev/Next** step through the catalogue
+and switch playback when a stream is active. **Stop** ends playback. Station
+switches and network cancellation run outside the UI sequencer; the latest
+selection wins. Connection, codec, playback and song-title updates appear in
+the globe's status area.
+
+`RadioGlobeStations.txt` is the larger original `stations2` snapshot;
+`RadioGlobeStationsTop.txt` preserves the smaller 899-entry `stations` snapshot.
+Run `WMRadioGlobe.Open RadioGlobeStationsTop.txt` to use the smaller one, or pass
+your own catalogue filename. The format is `latitude longitude "name" URL`.
+Placing `RadioGlobeStations.txt` in your launch directory overrides the bundled
+list. Close and reopen the globe to reload it. Format labels in the station
+window are hints from the names and URLs, not a codec verification. These are
+catalogue snapshots: some stations may have moved, gone offline, or use an
+unsupported format; failures are reported in the globe rather than freezing it.
+
+Before selecting a marker, **Play radio** uses `RadioGlobeStation.txt`, whose
 default is [SomaFM Groove Salad](https://somafm.com/groovesalad/directstreamlinks.html).
-To choose another station, put its direct HTTP/HTTPS MP3 URL on the first line
-of `RadioGlobeStation.txt` in your launch directory. Closing a globe window that
-started playback also requests a stop. Its bundled 1024x512 Earth
+Closing a globe window that started playback also requests a stop. Its bundled 1024x512 Earth
 texture is downsampled from radioglobe's `earth.mask`; no Python is needed at
 runtime. Drag and release to spin the globe; friction gradually stops it, and
 pressing the left button grabs and stops it immediately. The motion follows
@@ -142,19 +161,32 @@ RadioGlobeAudio.PlayURL https://ice5.somafm.com/groovesalad-128-mp3
 RadioGlobeAudio.Stop
 ```
 
-`PlayURL` runs in the background. Stop the current stream before starting another.
+`PlayURL` runs in the background and replaces the current station automatically.
 HTTP/HTTPS transport uses macOS's system libcurl in `libA2Radio.dylib`, beside
 `OberonLoader`. It validates TLS certificates, follows at most five redirects,
 handles HTTP chunking and legacy `ICY 200 OK`, and buffers at most 64 KiB with
 a 16 KiB startup target. Active Oberon removes ICY metadata from the audio and
-prints `StreamTitle` updates in the launch terminal. The MP3 decoder consumes
-forward-only input. Stop cancels network reads and playback; connection failures
+prints `StreamTitle` updates in the launch terminal. Radio playback decodes
+MP3 and AAC/AAC+ with macOS AudioFileStream/AudioConverter; Ogg Vorbis uses the
+bundled MIT-licensed `stb_vorbis` decoder and system PCM conversion. Vorbis
+logical-stream changes are handled so changing tracks can supply new headers
+and codebooks. Output is converted to stereo 44.1 kHz PCM for the native sound
+driver. The original Active Oberon MP3 decoder remains available for local
+MP3 playback and `DecodeMP3`. Stop cancels network reads and playback; connection failures
 and end-of-stream release both resources. Streams are not automatically reconnected.
-Use a direct MPEG-1 Layer III MP3 mount URL; AAC, Ogg, HLS and playlist resolution are not implemented.
+Use a direct MP3, ADTS AAC/AAC+, or Ogg Vorbis mount URL. Opus, FLAC, HLS and
+playlist-file resolution are not implemented. The catalogue retains those entries
+so its original data is preserved; the decoder reports unsupported streams.
 `python3 scripts/test-a2-radio.py BUILD_DIRECTORY` checks local plain/ICY/chunked
 streams, metadata boundaries, redirects, format/HTTP errors and cancellation.
-Add `--playback` to also play the local test station and drive the globe's
-Play/Stop buttons. This requires audio-device access and does not contact a public station.
+Add `--playback --stations` to exercise local playback, map selection, station
+switching, rapid requests, browser search and module cleanup. This requires
+audio-codec/device access and does not contact a public station.
+`python3 scripts/test-a2-codecs.py BUILD_DIRECTORY` verifies pitch, amplitude and
+duration for generated MP3, AAC, AAC+ and Vorbis fixtures, including chained
+Vorbis tracks. `python3 scripts/test-a2-stations.py BUILD_DIRECTORY` checks the
+catalogue snapshots, parsing, marker projection and picking. Pure globe geometry
+tests use an empty catalogue fixture to measure the texture independently of markers.
 
 The offline RadioGlobe codec command is also available in BlueShell:
 `RadioGlobeAudio.DecodeMP3 input.mp3 output.wav`. It uses A2's MP3 decoder and

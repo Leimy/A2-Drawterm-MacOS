@@ -39,6 +39,7 @@ cp "$repo/scripts/verify-a2-release.sh" "$stage/$name/verify.sh"
 cp "$repo/RELEASE-DARWIN-AARCH64.md" "$stage/$name/RELEASE-NOTES.md"
 cp "$repo/license.txt" "$stage/$name/LICENSE-A2.txt"
 cp "$repo/third_party/drawterm-LICENSE" "$stage/$name/LICENSE-drawterm.txt"
+cp "$repo/third_party/stb-vorbis-LICENSE" "$stage/$name/LICENSE-stb-vorbis.txt"
 revision=$(git -C "$repo" rev-parse HEAD)
 if [ -n "$(git -C "$repo" status --porcelain)" ]; then
     source_state='uncommitted changes present'
