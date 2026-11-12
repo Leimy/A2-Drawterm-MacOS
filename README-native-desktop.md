@@ -279,3 +279,20 @@ clang -arch arm64 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
 ```
 
 It checks 1-, 7-, 137- and 4096-byte input fragments for every bundled codec fixture.
+
+An optional FAAD2 evaluation probe is available for David Leimbach's
+[9front aacdec](https://github.com/leimy/aacdec) source tree. AAC playback in
+A2 currently uses AudioToolbox; this probe does not change the playback backend
+or add FAAD2 to the release bundle. It builds a separately obtained local
+checkout in a temporary directory and checks AAC-LC, HE-AAC and mono fixtures:
+
+```sh
+python3 scripts/test-a2-faad.py /path/to/aacdec
+python3 scripts/test-a2-faad.py /path/to/aacdec --sanitize
+```
+
+Evaluated revision: `c50992e2d5e02e69b4065e23fa7a074756516a76`.
+The decoder source carries GPL notices. No decoder sources or binaries are
+vendored by this probe. Runtime integration still needs bounded ADTS input,
+per-stream decoder state, PCM format-change handling and mixer integration;
+release packaging also needs to account for the decoder's license notices.
