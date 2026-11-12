@@ -1,0 +1,10 @@
+RadioGlobeTest.mp3 is an original, generated two-second test signal:
+440 Hz for one second, followed by 660 Hz for one second, with short fades.
+Stereo, 44.1 kHz, 128 kbit/s MPEG-1 Layer III. Dedicated to the public domain
+under CC0. Generated using lamejs 1.2.1; no encoder is required to run A2.
+
+In BlueShell or the terminal Oberon shell:
+RadioGlobeAudio.DecodeMP3 RadioGlobeTest.mp3 RadioGlobeTest.wav
+
+In the macOS terminal, from the same working directory:
+afplay RadioGlobeTest.wav

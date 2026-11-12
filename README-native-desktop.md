@@ -120,6 +120,10 @@ terminal, `afplay output.wav` plays the result. Conversion currently stops at
 ten minutes and can pad the final PCM block; streaming and playback inside
 RadioGlobe are still pending. `python3 scripts/test-a2-mp3.py BUILD_DIRECTORY`
 checks generated MP3 silence through the decoder and validates the WAV output.
+No personal MP3 is needed: the bundle includes `RadioGlobeTest.mp3`, an original
+two-second test clip. Run `RadioGlobeAudio.DecodeMP3 RadioGlobeTest.mp3 RadioGlobeTest.wav`
+in BlueShell, then `afplay RadioGlobeTest.wav` from the Mac terminal in your
+launch directory. The codec regression also checks the clip's 440 Hz and 660 Hz tones.
 The input-method selector offers Arabic, Armenian, Hebrew, Pinyin, Russian,
 Ukrainian, and Unicode entry; the language switcher and window switcher are
 also available from this page.
