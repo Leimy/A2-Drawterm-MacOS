@@ -188,6 +188,7 @@ TYPE
 		totSamples : SIGNED32;
 
 		hasMoreBytes: BOOLEAN;
+		preloaded: BOOLEAN;
 
 		(* Variables for internal buffercontrol *)
 		out : ARRAY 2 OF PcmStereo;		(* The actual buffer *)
@@ -1410,12 +1411,19 @@ TYPE
 		BEGIN
 			SELF.s := in;
 
-			s.SetPos(0);
+			preloaded := ~s.CanSetPos();
+			IF ~preloaded THEN s.SetPos(0) END;
 			tmp := s.Pos();
 
 			NEW(encFrame);
 			frameNum:=1; totBits := 0; frameStart := 0; offset := 0; curByte := -1; curBit := 8;
 			encFrame.hsynth := TRUE; encFrame.ssynth := TRUE;
+			paranoia := FALSE;
+			IF preloaded THEN
+				curBit := 8; tempVal := 0; mainDataEnd := 0;
+				vectIdx0 := 0; vectIdx1 := 0;
+				encFrame.curByte := -1; encFrame.curBit := 8
+			END;
 
 			Next();
 			(* store paranoia information *)
@@ -1451,7 +1459,7 @@ TYPE
 				(* And SoundDevices for now only supports 16 bits per sample						*)
 				bitsPerSample := 16;
 
-				s.SetPos(tmp);
+				IF ~preloaded THEN s.SetPos(tmp) END;
 
 				res := Codecs.ResOk;
 				first := TRUE;
@@ -1537,31 +1545,36 @@ TYPE
 			j: SIZE;
 		BEGIN
 			IF first THEN
-				NEW(encFrame);
-				curBit := 8;
-				curByte := -1;
-				tempVal := 0;
-				offset := 0;
-				totBits := 0;
-				mainDataEnd := 0;
-				frameStart := 0;
-				vectIdx0 := 0;
-				vectIdx1 := 0;
-				frameNum:=1;
+				IF ~preloaded THEN
+					NEW(encFrame);
+					curBit := 8;
+					curByte := -1;
+					tempVal := 0;
+					offset := 0;
+					totBits := 0;
+					mainDataEnd := 0;
+					frameStart := 0;
+					vectIdx0 := 0;
+					vectIdx1 := 0;
+					frameNum:=1;
 
-				encFrame.hsynth := TRUE;
-				encFrame.ssynth := TRUE;
-				encFrame.curByte := -1;
-				encFrame.curBit := 8;
-				first := FALSE;
-				gr:=0;
-				outBufferPos := 0;
-				Next();
+					encFrame.hsynth := TRUE;
+					encFrame.ssynth := TRUE;
+					encFrame.curByte := -1;
+					encFrame.curBit := 8;
+					first := FALSE;
+					gr:=0;
+					outBufferPos := 0;
+					Next();
+				ELSE
+					preloaded := FALSE; first := FALSE; gr := 0; outBufferPos := 0
+				END;
 				DoLayer3();
 			END;
 
 			IF s.res = Streams.EOF THEN
 				hasMoreBytes := FALSE;
+				buffer.len := 0;
 				RETURN;
 			END;
 
@@ -1569,13 +1582,15 @@ TYPE
 				IF outBufferPos > 2303 THEN
 					IF gr = 1 THEN
 						gr := 0;
-						IF (s.res = Streams.EOF) & (s.res = Streams.Ok) THEN
+						IF s.res # Streams.Ok THEN
 							hasMoreBytes := FALSE;
+							buffer.len := j;
 							RETURN;
 						END;
 						Next();
-						IF (s.res = Streams.EOF) & (s.res = Streams.Ok) THEN
+						IF s.res # Streams.Ok THEN
 							hasMoreBytes := FALSE;
+							buffer.len := j;
 							RETURN;
 						END;
 						DoLayer3();

@@ -14,7 +14,7 @@ fi
 for file in a2 OberonLoader drawterm; do
     test -x "$bundle/$file" || { printf 'Missing executable: %s\n' "$file" >&2; exit 1; }
 done
-for file in DarwinAosDrawtermDesktopAa libA2Audio.dylib Modules.GofAa WMColorPicker.GofAa data/NativeMenuPage00.XML SHA256SUMS; do
+for file in DarwinAosDrawtermDesktopAa libA2Audio.dylib libA2Radio.dylib Modules.GofAa WMColorPicker.GofAa data/NativeMenuPage00.XML SHA256SUMS; do
     test -s "$bundle/$file" || { printf 'Missing bundle file: %s\n' "$file" >&2; exit 1; }
 done
 

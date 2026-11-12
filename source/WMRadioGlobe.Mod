@@ -1,6 +1,6 @@
 MODULE WMRadioGlobe; (** A2 globe prototype based on David Leimbach's 9front radioglobe. *)
 
-IMPORT Math64, Raster, WMGraphics, WMRectangles, WMWindowManager, Strings, Kernel, Modules, WMMessages;
+IMPORT Math64, Raster, WMGraphics, WMRectangles, WMWindowManager, Strings, Kernel, Modules, WMMessages, Commands, Files;
 
 CONST
 	Width = 600; Height = 500;
@@ -119,6 +119,15 @@ TYPE
 			viewWidth := width; viewHeight := height; dirty := TRUE
 		END Resize;
 
+		PROCEDURE RadioControl(x, y: SIZE; keys: SET): SIGNED32;
+		BEGIN {EXCLUSIVE}
+			IF (0 IN keys) & (y >= viewHeight - 34) & (y < viewHeight - 6) THEN
+				IF (x >= 16) & (x < 116) THEN RETURN 1 END;
+				IF (x >= 124) & (x < MIN(184, viewWidth)) THEN RETURN 2 END
+			END;
+			RETURN 0
+		END RadioControl;
+
 		(* Only the active body renders. Input handlers update state, and this
 		   snapshot releases the monitor before drawing or swapping buffers. *)
 		PROCEDURE NextFrame(VAR lat, lon: FLOAT64; VAR rad, width, height: SIZE; VAR coarse: BOOLEAN): BOOLEAN;
@@ -157,6 +166,7 @@ TYPE
 		texture: Raster.Image;
 		orbit: Orbit;
 		timer: Kernel.Timer;
+		ownsPlayback: BOOLEAN;
 
 		PROCEDURE &New*;
 		BEGIN
@@ -164,7 +174,7 @@ TYPE
 			useAlpha := FALSE; (* BGRA buffers, but every pixel is opaque: copy instead of blending. *)
 			NEW(orbit); NEW(timer); IncCount;
 			WMWindowManager.AddWindow(SELF, 80, 80);
-			SetTitle(Strings.NewString("RadioGlobe - Earth preview"));
+			SetTitle(Strings.NewString("RadioGlobe"));
 			texture := WMGraphics.LoadImage("RadioGlobeEarth.png", TRUE)
 		END New;
 
@@ -229,7 +239,11 @@ TYPE
 				INC(y, stride)
 			END;
 			canvas.SetColor(WMGraphics.White);
-			canvas.DrawString(16, height - 18, "Drag to rotate  |  wheel to zoom  |  globe preview (no audio yet)");
+			canvas.Fill(WMRectangles.MakeRect(16, height - 34, 116, height - 6), 303060FFH, WMGraphics.ModeCopy);
+			canvas.Fill(WMRectangles.MakeRect(124, height - 34, 184, height - 6), 303060FFH, WMGraphics.ModeCopy);
+			canvas.DrawString(24, height - 15, "Play radio");
+			canvas.DrawString(132, height - 15, "Stop");
+			canvas.DrawString(200, height - 15, "Drag to rotate | wheel to zoom");
 			(* Desktop zoom otherwise bilinearly filters every enlarged motion frame. *)
 			HintReduceQuality(coarse);
 			Swap;
@@ -238,7 +252,14 @@ TYPE
 
 
 		PROCEDURE PointerDown*(x, y: SIZE; keys: SET);
-		BEGIN orbit.PointerDown(x, y, keys) END PointerDown;
+		VAR action: SIGNED32;
+		BEGIN
+			action := orbit.RadioControl(x, y, keys);
+			IF action = 1 THEN PlayRadio; ownsPlayback := TRUE
+			ELSIF action = 2 THEN StopRadio; ownsPlayback := FALSE
+			ELSE orbit.PointerDown(x, y, keys)
+			END
+		END PointerDown;
 
 		PROCEDURE PointerMove*(x, y: SIZE; keys: SET);
 		BEGIN orbit.PointerMove(x, y, keys) END PointerMove;
@@ -277,7 +298,8 @@ TYPE
 		BEGIN
 			(* Do not join the renderer while the UI sequencer holds its lock.
 			   The active body removes the window after its last frame. *)
-			orbit.Stop
+			orbit.Stop;
+			IF ownsPlayback THEN StopRadio; ownsPlayback := FALSE END
 		END Close;
 
 		PROCEDURE Handle*(VAR msg: WMMessages.Message);
@@ -297,6 +319,22 @@ BEGIN {EXCLUSIVE} INC(nofWindows) END IncCount;
 
 PROCEDURE DecCount;
 BEGIN {EXCLUSIVE} DEC(nofWindows) END DecCount;
+
+PROCEDURE PlayRadio;
+VAR file: Files.File; reader: Files.Reader;
+	url: ARRAY 2049 OF CHAR; command: ARRAY 4096 OF CHAR;
+	res: INTEGER; msg: ARRAY 256 OF CHAR;
+BEGIN
+	url := "https://ice5.somafm.com/groovesalad-128-mp3";
+	file := Files.Old("RadioGlobeStation.txt");
+	IF file # NIL THEN Files.OpenReader(reader, file, 0); reader.Ln(url) END;
+	command := "RadioGlobeAudio.PlayURL "; Strings.Append(command, url);
+	Commands.Call(command, {}, res, msg)
+END PlayRadio;
+
+PROCEDURE StopRadio;
+VAR res: INTEGER; msg: ARRAY 256 OF CHAR;
+BEGIN Commands.Call("RadioGlobeAudio.Stop", {}, res, msg) END StopRadio;
 
 PROCEDURE Cleanup;
 VAR msg: WMMessages.Message; killer: KillerMsg; manager: WMWindowManager.WindowManager;

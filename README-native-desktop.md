@@ -99,8 +99,12 @@ globe with the left mouse button to rotate; use the wheel to zoom. This first
 preview keeps the globe circular when its window is resized. Wheel zoom can
 enlarge it beyond the window edges; rendering clips to the visible area.
 The application lives in `source/WMRadioGlobe.Mod`, with a separate Earth texture
-and shared A2 graphics and math modules. This
-preview has no station markers or audio playback. Its bundled 1024x512 Earth
+and shared A2 graphics and math modules. Station markers remain pending.
+The footer's **Play radio** and **Stop** buttons control an MP3 stream. The
+default is [SomaFM Groove Salad](https://somafm.com/groovesalad/directstreamlinks.html).
+To choose another station, put its direct HTTP/HTTPS MP3 URL on the first line
+of `RadioGlobeStation.txt` in your launch directory. Closing a globe window that
+started playback also requests a stop. Its bundled 1024x512 Earth
 texture is downsampled from radioglobe's `earth.mask`; no Python is needed at
 runtime. Drag and release to spin the globe; friction gradually stops it, and
 pressing the left button grabs and stops it immediately. The motion follows
@@ -121,8 +125,7 @@ channels. Each channel has its own volume (256 = unity); the A2 output mixer
 adds volume and mute without changing the Mac's system volume. Each channel has bounded native
 buffers; AudioQueue callbacks remain in C, and reusable A2 buffers are returned
 after copying. Playback uses neither drawterm audio nor an external player.
-The command waits until the local file finishes playing; live streams and
-RadioGlobe's station UI remain pending. The native library `libA2Audio.dylib`
+The command waits until the local file finishes playing. The native library `libA2Audio.dylib`
 must sit beside the `OberonLoader` executable, including for terminal-only use.
 `python3 scripts/test-a2-native-audio.py BUILD_DIRECTORY` plays the test clip
 twice and checks unloading and reinstalling the driver. It needs audio-device access.
@@ -131,12 +134,34 @@ resume, stop, and closing. Existing `SoundDevices` clients can select this drive
 after running `DarwinSound.Install`.
 The desktop offers **Demos > Audio test** and **Tools > Audio mixer**.
 
+For direct Icecast/Shoutcast-style MP3 streams, use these commands in BlueShell
+or a persistent terminal Oberon shell:
+
+```text
+RadioGlobeAudio.PlayURL https://ice5.somafm.com/groovesalad-128-mp3
+RadioGlobeAudio.Stop
+```
+
+`PlayURL` runs in the background. Stop the current stream before starting another.
+HTTP/HTTPS transport uses macOS's system libcurl in `libA2Radio.dylib`, beside
+`OberonLoader`. It validates TLS certificates, follows at most five redirects,
+handles HTTP chunking and legacy `ICY 200 OK`, and buffers at most 64 KiB with
+a 16 KiB startup target. Active Oberon removes ICY metadata from the audio and
+prints `StreamTitle` updates in the launch terminal. The MP3 decoder consumes
+forward-only input. Stop cancels network reads and playback; connection failures
+and end-of-stream release both resources. Streams are not automatically reconnected.
+Use a direct MPEG-1 Layer III MP3 mount URL; AAC, Ogg, HLS and playlist resolution are not implemented.
+`python3 scripts/test-a2-radio.py BUILD_DIRECTORY` checks local plain/ICY/chunked
+streams, metadata boundaries, redirects, format/HTTP errors and cancellation.
+Add `--playback` to also play the local test station and drive the globe's
+Play/Stop buttons. This requires audio-device access and does not contact a public station.
+
 The offline RadioGlobe codec command is also available in BlueShell:
 `RadioGlobeAudio.DecodeMP3 input.mp3 output.wav`. It uses A2's MP3 decoder and
 writes stereo 16-bit PCM WAV for a local MPEG-1 Layer III file. From the Mac
 terminal, `afplay output.wav` plays the result. Conversion currently stops at
-ten minutes and can pad the final PCM block; streaming and playback inside
-RadioGlobe are still pending. `python3 scripts/test-a2-mp3.py BUILD_DIRECTORY`
+ten minutes. It also accepts a URL for finite stream regression tests.
+`python3 scripts/test-a2-mp3.py BUILD_DIRECTORY`
 checks generated MP3 silence through the decoder and validates the WAV output.
 No personal MP3 is needed: the bundle includes `RadioGlobeTest.mp3`, an original
 two-second test clip. Run `RadioGlobeAudio.DecodeMP3 RadioGlobeTest.mp3 RadioGlobeTest.wav`
