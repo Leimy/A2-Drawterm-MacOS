@@ -36,7 +36,7 @@ for module in \
     Oberon.TextGadgets Oberon.BasicFigures Oberon.Scrollbars \
     Oberon.Directories Oberon.Documents Oberon.Views Oberon.Desktops \
     Oberon.NamePlates Oberon.TextDocs Oberon.OPM Oberon.OPS Oberon.TextPopups \
-    Oberon.EditKeys
+    Oberon.EditKeys OpenTypeFonts WMOTFonts
 do
     printf 'Compiler.Compile -b=AArch64 --mergeSections --metaData=full --objectFileExtension=.GofAa --symbolFileExtension=.SymAa --define=UNIX,AARCH64,DESKTOP %s.Mod ~\n' "$module" > "$output/OberonBuild.txt"
     (cd "$output" && "$loader" execute OberonBuild.txt) > "$output/OberonBuild.log" 2>&1

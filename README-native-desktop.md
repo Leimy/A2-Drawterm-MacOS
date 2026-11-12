@@ -89,7 +89,11 @@ not yet been verified. **Demos > Bunny** displays the bundled animated GIF.
 **Demos > 3D Explorer** opens the native software-rendered 3D viewer; drag
 with the left mouse button to rotate and drag with the right button to zoom.
 **Demos > Turing patterns** animates the reaction-diffusion simulation.
-**Demos > RadioGlobe (preview)** shows a textured Earth based on David
+**Demos > Mandelbrot** opens the concurrent fractal viewer, **Figures** opens
+the editable shape example, **Text writer** opens linked editors, and **Image
+grid** opens the colored image-grid example. These modules and their supporting
+window components are built for AArch64.
+**Demos > RadioGlobe** shows a textured Earth based on David
 Leimbach's [9front radioglobe](https://github.com/leimy/radioglobe). Drag the
 globe with the left mouse button to rotate; use the wheel to zoom. This first
 preview keeps the globe circular when its window is resized. Wheel zoom can
@@ -122,6 +126,12 @@ and DNS modules. From a source checkout, run
 `nc` without contacting an external server. These modules are
 available for native A2 programs; network applications still need their own
 runtime checks before being added to the menu.
+
+The bundle also includes A2's cryptography modules and test commands. For
+example, `CryptoTools.Hash CryptoSHA256 filename` prints a file's SHA-256 hash
+in BlueShell. From a source checkout, run
+`scripts/test-a2-crypto.sh build/native-desktop` to check SHA-256, SHA-3,
+MD5, and an AES-128 known-answer vector in the native runtime.
 
 To edit and compile the example in PET, copy it into your launch
 directory, run `PET.Open NativeDesktopHello.Mod` in BlueShell, then click

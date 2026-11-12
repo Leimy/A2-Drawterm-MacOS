@@ -10,7 +10,7 @@ IMPORT
 		buf, value: ARRAY 1024 OF CHAR;
 		file: ARRAY 256 OF CHAR;
 		hash: ARRAY 32 OF CHAR;
-		len: SIGNED32;
+		len: SIZE;
 		h: CryptoHashes.Hash;
 		f: Files.File;
 		r: Files.Reader;
