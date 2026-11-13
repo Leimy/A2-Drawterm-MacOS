@@ -1005,7 +1005,14 @@ TYPE
 			oldBorders : WMRectangles.Rectangle;
 			string : Strings.String;
 		BEGIN
-			IF property = defaultTextColor THEN
+			IF property = font THEN
+				PropertyChanged^(sender, property);
+				ShowLineNumbers(showLineNumbers.Get());
+				IF text # NIL THEN
+					layout.FullLayout(FALSE); CheckNumberOfLines; UpdateScrollbars
+				END;
+				Invalidate;
+			ELSIF property = defaultTextColor THEN
 				defaultTextColorI := defaultTextColor.Get(); Invalidate;
 			ELSIF property = defaultTextBgColor THEN
 				defaultTextBgColorI := defaultTextBgColor.Get(); Invalidate;
@@ -1133,11 +1140,12 @@ TYPE
 		END SetSyntaxHighlighter;
 
 		PROCEDURE ShowLineNumbers(enabled : BOOLEAN);
-		VAR font : WMGraphics.Font;
+		VAR font : WMGraphics.Font; width, height: SIZE;
 		BEGIN
 			font := GetFont( );
 			IF enabled THEN
-				x0 := 55;
+				font.GetStringSize("00000", width, height);
+				x0 := MAX(55, width + 10);
 				lineNumberFont := WMGraphics.GetFont(font.name, font.size, {});
 				lineNumberFont10 := WMGraphics.GetFont(font.name, font.size, {WMGraphics.FontBold});
 			ELSE

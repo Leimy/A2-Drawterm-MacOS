@@ -71,6 +71,12 @@ CONST
 	DefaultIndicateTabs = FALSE;
 	DefaultCurrentLineColor = 0;
 	DefaultBackgroundColor = WMGraphics.White;
+	#IF AARCH64 THEN
+		DefaultEditorFontSize = 20;
+	#ELSE
+		DefaultEditorFontSize = 14;
+	#END
+	FontSizeFile = "PET.FontSize";
 
 	(* Compiler *)
 	DefaultCompilerName = "Fox";
@@ -151,6 +157,7 @@ TYPE
 		indicateTabs : BOOLEAN;
 		currentLineColor : SIGNED32;
 		backgroundColor : SIGNED32;
+		editorFontSize : SIGNED32;
 
 		(* Compiler *)
 		defaultCompilerOptions : CompilerOptions;
@@ -177,6 +184,7 @@ TYPE
 			indicateTabs := DefaultIndicateTabs;
 			currentLineColor := DefaultCurrentLineColor;
 			backgroundColor := DefaultBackgroundColor;
+			editorFontSize := DefaultEditorFontSize;
 			(* Compiler *)
 			COPY(DefaultCompilerOptions, defaultCompilerOptions);
 			nofCompilers := 0;
@@ -301,8 +309,16 @@ TYPE
 
 		(* Load settings from system configuration database *)
 		PROCEDURE Load;
-		VAR string : String; temp: SIGNED32; res: INTEGER;
+		VAR string : String; temp: SIGNED32; res: INTEGER; file: Files.File; reader: Files.Reader;
 		BEGIN
+			file := Files.Old(FontSizeFile);
+			IF file # NIL THEN
+				Files.OpenReader(reader, file, 0);
+				IF reader.GetInteger(temp, FALSE) &
+					((temp = 12) OR (temp = 14) OR (temp = 16) OR (temp = 20) OR (temp = 24)) THEN
+					editorFontSize := temp
+				END
+			END;
 			(* General *)
 			Configuration.Get("Applications.PET.General.BackupOnStore", string, res);
 			Strings.TrimWS(string);
@@ -441,6 +457,7 @@ TYPE
 
 			NEW(editor); editor.alignment.Set(WMComponents.AlignClient);
 			editor.tv.showBorder.Set(TRUE);
+			editor.tv.font.Set(WMGraphics.GetFont("Oberon", GetSettings().editorFontSize, {}));
 			AddContent(editor);
 			editor.SetText(scratchText)
 		END Init;
@@ -691,7 +708,18 @@ TYPE
 			NEW(um, 1001, TRUE);
 			editor.text.SetUndoManager(um);
 			editor.SetUndoManager(um);
+			SetEditorFontSize(owner.editorFontSize);
 		END InitPanel;
+
+		PROCEDURE SetEditorFontSize(size: SIGNED32);
+		VAR font: WMGraphics.Font;
+		BEGIN
+			font := WMGraphics.GetFont("Oberon", size, {});
+			editor.tv.font.Set(font); splitEditor.tv.font.Set(font);
+			logEdit.tv.font.Set(font); scratch.editor.tv.font.Set(font);
+			logWriter.SetFontName("Oberon"); logWriter.SetFontSize(size);
+			errorWriter.SetFontName("Oberon"); errorWriter.SetFontSize(size)
+		END SetEditorFontSize;
 
 		PROCEDURE CreateSidePanel(settings : CompilerSettings);
 		VAR factory : PETTrees.Factory; strings : Strings.StringArray;
@@ -1079,6 +1107,9 @@ TYPE
 	VAR
 		filenameEdit, optionsEdit, positionEdit: WMEditors.Editor;
 		loadBtn, storeBtn, closeBtn, compileBtn, findPCBtn, undoBtn, redoBtn: WMStandardComponents.Button;
+		fontSmallerBtn, fontLargerBtn: WMStandardComponents.Button;
+		fontSizeLabel: WMStandardComponents.Label;
+		editorFontSize: SIGNED32;
 		splitBtn, formatBtn, searchBtn, labelsBtn, wrapBtn, errListBtn, findBtn, logBtn, forwardBtn, backBtn : WMStandardComponents.Button;
 		popup: WMPopups.Popup;
 
@@ -1116,6 +1147,7 @@ TYPE
 		BEGIN
 
 			settings := GetSettings();
+			editorFontSize := settings.editorFontSize;
 			IncCount;
 			InitCodecs;
 			vc := CreateForm();
@@ -1258,6 +1290,24 @@ TYPE
 				RETURN toolbar;
 			END CreateToolbar;
 
+			PROCEDURE CreateFontbar(): WMComponents.VisualComponent;
+			VAR bar: WMStandardComponents.Panel; font: WMGraphics.Font;
+			BEGIN
+				NEW(bar); bar.bounds.SetHeight(28); bar.alignment.Set(WMComponents.AlignTop);
+				bar.fillColor.Set(WMGraphics.Color(0EEEEEEFFH));
+				font := WMGraphics.GetFont("Oberon", 16, {});
+				NEW(fontSmallerBtn); fontSmallerBtn.caption.SetAOC("Text -");
+				fontSmallerBtn.bounds.SetWidth(80); fontSmallerBtn.alignment.Set(WMComponents.AlignLeft);
+				fontSmallerBtn.font.Set(font); fontSmallerBtn.onClick.Add(ChangeTextSize); bar.AddContent(fontSmallerBtn);
+				NEW(fontLargerBtn); fontLargerBtn.caption.SetAOC("Text +");
+				fontLargerBtn.bounds.SetWidth(80); fontLargerBtn.alignment.Set(WMComponents.AlignLeft);
+				fontLargerBtn.font.Set(font); fontLargerBtn.onClick.Add(ChangeTextSize); bar.AddContent(fontLargerBtn);
+				NEW(fontSizeLabel); fontSizeLabel.alignment.Set(WMComponents.AlignClient);
+				fontSizeLabel.font.Set(font); bar.AddContent(fontSizeLabel);
+				UpdateFontSizeLabel;
+				RETURN bar
+			END CreateFontbar;
+
 			PROCEDURE CreateStatusbar() : WMComponents.VisualComponent;
 			VAR statusbar : WMStandardComponents.Panel;
 			BEGIN
@@ -1326,6 +1376,7 @@ TYPE
 			panel.AddContent(tabs); tabs.SetExtDragDroppedHandler(DragDroppedHandler);
 
 			panel.AddContent(CreateToolbar());
+			panel.AddContent(CreateFontbar());
 			panel.AddContent(CreateStatusbar());
 
 			(* -- Page holding the PETPanel *)
@@ -1334,6 +1385,40 @@ TYPE
 
 			RETURN panel;
 		END CreateForm;
+
+		PROCEDURE UpdateFontSizeLabel;
+		VAR caption, number: ARRAY 80 OF CHAR;
+		BEGIN
+			Strings.IntToStr(editorFontSize, number);
+			COPY("  Text: ", caption); Strings.Append(caption, number);
+			Strings.Append(caption, " px   (Ctrl + / Ctrl -)"); fontSizeLabel.caption.SetAOC(caption)
+		END UpdateFontSizeLabel;
+
+		PROCEDURE ChangeTextSize(sender, data: ANY);
+		VAR size, i: SIGNED32; file: Files.File; writer: Files.Writer;
+		BEGIN
+			size := editorFontSize;
+			IF sender = fontLargerBtn THEN
+				IF size < 14 THEN size := 14 ELSIF size < 16 THEN size := 16
+				ELSIF size < 20 THEN size := 20 ELSE size := 24 END
+			ELSE
+				IF size > 20 THEN size := 20 ELSIF size > 16 THEN size := 16
+				ELSIF size > 14 THEN size := 14 ELSE size := 12 END
+			END;
+			editorFontSize := size; settings.editorFontSize := size;
+			IF gsettings # NIL THEN gsettings.editorFontSize := size END;
+			FOR i := 0 TO MaxNbrOfTabs-1 DO
+				IF pages[i] # NIL THEN pages[i].SetEditorFontSize(size) END
+			END;
+			UpdateFontSizeLabel;
+			file := Files.New(FontSizeFile);
+			IF file # NIL THEN
+				Files.OpenWriter(writer, file, 0); writer.Int(size, 0); writer.Ln;
+				writer.Update; Files.Register(file)
+			ELSE KernelLog.String("PET: could not save text size"); KernelLog.Ln
+			END;
+			KernelLog.String("PET text size: "); KernelLog.Int(size, 0); KernelLog.Ln
+		END ChangeTextSize;
 
 		PROCEDURE ButtonHandler(sender, data : ANY);
 		VAR options : CompilerOptions; searchString : SearchString; res : INTEGER;
@@ -2635,7 +2720,11 @@ TYPE
 		BEGIN
 			modifierFlags := flags;
 			IF DisableShortcuts THEN RETURN FALSE; END;
-			IF (keysym = 13H) & ControlKeyDown(flags) THEN (* CTRL-S *)
+			IF (flags * Inputs.Ctrl # {}) & (flags - Inputs.Ctrl - Inputs.Shift = {}) &
+				((ucs = ORD("+")) OR (ucs = ORD("=")) OR (ucs = ORD("-"))) THEN
+				IF ucs = ORD("-") THEN ChangeTextSize(fontSmallerBtn, NIL)
+				ELSE ChangeTextSize(fontLargerBtn, NIL) END;
+			ELSIF (keysym = 13H) & ControlKeyDown(flags) THEN (* CTRL-S *)
 				StoreHandler(NIL, NIL);
 			ELSIF (keysym = 08H) & ControlKeyDown(flags) THEN (* CTRL-H *)
 				IF currentPage # NIL THEN

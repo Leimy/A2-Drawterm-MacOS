@@ -60,6 +60,8 @@ def main():
     parser.add_argument('--expect-window', action='store_true', help='require the shell command to paint a new window')
     parser.add_argument('--command-settle', type=float, default=1, help='seconds to wait after sending a shell command')
     parser.add_argument('--pet-compile', action='store_true', help='click PET Compile after opening a source file')
+    parser.add_argument('--pet-text-size', choices=['larger', 'smaller'], help='click PET text-size control after opening a source file')
+    parser.add_argument('--pet-text-via-keyboard', action='store_true', help='use Ctrl +/- for --pet-text-size instead of clicking')
     parser.add_argument('--cwd', type=Path, help='working directory for A2')
     args = parser.parse_args()
     if args.shell_command and args.menu_app not in (None, 'shell'):
@@ -68,6 +70,10 @@ def main():
         parser.error('shell expectations require --shell-command')
     if args.pet_compile and not args.shell_command:
         parser.error('--pet-compile requires --shell-command')
+    if args.pet_text_size and not args.shell_command:
+        parser.error('--pet-text-size requires --shell-command')
+    if args.pet_text_via_keyboard and not args.pet_text_size:
+        parser.error('--pet-text-via-keyboard requires --pet-text-size')
     if (args.paste_shell_command or args.pie_shell_command) and not args.shell_command:
         parser.error('paste modes require --shell-command')
     if args.paste_shell_command and args.pie_shell_command:
@@ -192,6 +198,7 @@ def main():
     tetris_start_sent = False; tetris_game_initial = None; tetris_game_flushes = 0; tetris_game_at = None
     shell_text = ('\n' if args.paste_shell_command or args.pie_shell_command else args.shell_command + '\n') if args.shell_command else ''
     shell_typed = 0; shell_done = None; shell_pasted = False; shell_window_initial = None; pet_click_index = 0
+    pet_font_click_index = 0; pet_font_done = None
     clipboard_text = args.shell_command.encode() if args.paste_shell_command or args.pie_shell_command else b''
     pie_events = [(300, 200, 0), (300, 200, 4), (360, 200, 4), (360, 200, 0)]
     pie_index = 0
@@ -502,7 +509,20 @@ def main():
                 event = ('m' + ''.join(f'{n:11d} ' for n in [610, 150, button, 6000 + pet_click_index * 300])).encode()
                 host.sendall(packet(117, mouse_tag, struct.pack('<I', len(event)) + event))
                 mouse_tag = None; pet_click_index += 1; next_event = time.monotonic() + 0.4
-            if shell_done is not None and time.monotonic() - shell_done > args.command_settle and (not args.pet_compile or pet_click_index == 3):
+            if args.pet_text_via_keyboard and pet_font_done is None and shell_done is not None and time.monotonic() - shell_done > args.command_settle and keyboard_tag is not None:
+                char = b'+' if args.pet_text_size == 'larger' else b'-'
+                control = chr(0xF017).encode()
+                event = b'r' + control + b'\0r' + char + b'\0R' + char + b'\0R' + control + b'\0'
+                host.sendall(packet(117, keyboard_tag, struct.pack('<I', len(event)) + event))
+                keyboard_tag = None; pet_font_done = time.monotonic()
+            if args.pet_text_size and not args.pet_text_via_keyboard and pet_font_click_index < 3 and shell_done is not None and time.monotonic() - shell_done > args.command_settle and mouse_tag is not None and time.monotonic() >= next_event:
+                x = 150 if args.pet_text_size == 'larger' else 70
+                button = [0, 1, 0][pet_font_click_index]
+                event = ('m' + ''.join(f'{n:11d} ' for n in [x, 174, button, 7000 + pet_font_click_index * 300])).encode()
+                host.sendall(packet(117, mouse_tag, struct.pack('<I', len(event)) + event))
+                mouse_tag = None; pet_font_click_index += 1; next_event = time.monotonic() + 0.4
+                if pet_font_click_index == 3: pet_font_done = time.monotonic()
+            if shell_done is not None and time.monotonic() - shell_done > args.command_settle and (not args.pet_compile or pet_click_index == 3) and (not args.pet_text_size or (pet_font_done is not None and time.monotonic() - pet_font_done > 2)):
                 expected = args.expect_file
                 if expected is not None and not expected.is_absolute() and args.cwd:
                     expected = args.cwd / expected

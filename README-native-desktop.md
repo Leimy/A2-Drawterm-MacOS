@@ -38,6 +38,22 @@ cd ~/A2-work
 /path/to/A2-Darwin-arm64-preview/a2
 ```
 
+### Larger PET text (newer source builds)
+
+PET on AArch64 starts with **20-pixel editor text**, independently of desktop
+zoom. Its **Text - / Text +** bar, or **Ctrl+- / Ctrl++** (Ctrl+= also works),
+selects 12, 14, 16, 20 or 24 pixels. Source, split view and scratch text use the
+selected base size; new compiler-log output uses it too. Syntax highlighting is
+retained. Existing explicit formatting in rich text can override the base font.
+
+The choice is saved in `PET.FontSize` in A2's working directory and read on the
+next launch. Use the same working directory to keep your preference. Font changes
+affect the view, without formatting or rewriting the source file. The rest of
+the desktop keeps its existing control sizes.
+
+This change is newer than the `preview-2026-11-13-readiness` archive. Rebuild
+from current source to get it; that existing download is unchanged.
+
 Open **Desktop > BlueShell**, then compile and run the bundled example. Enter
 each line separately:
 
