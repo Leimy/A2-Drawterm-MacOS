@@ -4,11 +4,13 @@ The drawterm desktop includes the Fox AArch64 compiler. BlueShell runs A2
 commands; the classic Oberon window is a separate environment and its classic
 compiler still targets i80386.
 
+The [2026-11-13 readiness preview](https://github.com/Leimy/A2-Drawterm-MacOS/releases/tag/preview-2026-11-13-readiness)
+includes the desktop, modified drawterm and native compiler toolchain.
 For a first run on another Apple Silicon Mac, copy the ZIP and its adjacent
 `.zip.sha256` file to that Mac. In Terminal, verify and extract them:
 
 ```sh
-archive=A2-Darwin-arm64-preview-2026-11-03-apps.zip
+archive=A2-Darwin-arm64-preview-2026-11-13-readiness.zip
 shasum -a 256 -c "$archive.sha256"
 unzip "$archive"
 cd A2-Darwin-arm64-preview
@@ -16,10 +18,12 @@ sh ./verify.sh --check
 sh ./verify.sh --launch
 ```
 
-The verifier checks every bundled file, confirms the launcher starts, and
-opens A2 with `~/A2-work` as its writable directory. Running the bundle needs
+The verifier checks every bundled file, compiles and runs an Active Oberon
+example using the bundled toolchain, and confirms the launcher starts.
+With `--launch`, it opens A2 with `~/A2-work` as its writable directory. Running the bundle needs
 neither Python nor Xcode command-line tools. The binaries target macOS 13.0 or
-later on Apple Silicon; the clean-Mac test should confirm actual compatibility.
+later on Apple Silicon. Release-readiness checks on two Apple Silicon Macs
+used macOS 27.2.1; earlier macOS versions still need testing.
 This preview has no Developer ID signature or notarization. If macOS blocks a
 downloaded executable after its checksums pass, review the warning in
 [System Settings > Privacy & Security](https://support.apple.com/en-lamr/102445)

@@ -10,7 +10,7 @@ enum { Slots = 8, Capacity = 16384 };
 typedef struct {
     AudioQueueRef queue;
     AudioQueueBufferRef buffers[Slots];
-    int busy[Slots], channels, bits;
+    int busy[Slots], channels, bits, wants_start, started;
     pthread_mutex_t lock;
 } Output;
 
@@ -20,6 +20,21 @@ static void completed(void *context, AudioQueueRef queue, AudioQueueBufferRef bu
     pthread_mutex_lock(&o->lock);
     for (int i = 0; i < Slots; i++) if (o->buffers[i] == buffer) o->busy[i] = 0;
     pthread_mutex_unlock(&o->lock);
+}
+
+/* A2 clients may call Start before supplying PCM. Start AudioQueue only once
+ * a buffer is enqueued, so an empty queue cannot fail to start and leave the
+ * producer waiting forever for callbacks from a queue that never ran. */
+static OSStatus start_ready(Output *o) {
+    if (!o->wants_start || o->started) return 0;
+    int ready = 0;
+    pthread_mutex_lock(&o->lock);
+    for (int i = 0; i < Slots; i++) ready |= o->busy[i];
+    pthread_mutex_unlock(&o->lock);
+    if (!ready) return 0;
+    OSStatus status = AudioQueueStart(o->queue, NULL);
+    if (!status) o->started = 1;
+    return status;
 }
 
 void a2audio_destroy(void *context) {
@@ -57,7 +72,11 @@ int a2audio_write(void *context, const void *data, int length) {
         int slot = -1;
         pthread_mutex_lock(&o->lock);
         for (int i = 0; i < Slots; i++) if (!o->busy[i]) { slot = i; break; }
-        if (slot < 0) { pthread_mutex_unlock(&o->lock); return 1; }
+        if (slot < 0) {
+            pthread_mutex_unlock(&o->lock);
+            OSStatus status = start_ready(o);
+            return status ? status : 1;
+        }
         o->busy[slot] = 1;
         pthread_mutex_unlock(&o->lock);
         int n = length < Capacity ? length : Capacity;
@@ -68,6 +87,8 @@ int a2audio_write(void *context, const void *data, int length) {
             pthread_mutex_lock(&o->lock); o->busy[slot] = 0;
             pthread_mutex_unlock(&o->lock); return status;
         }
+        status = start_ready(o);
+        if (status) return status;
         p += n; length -= n;
     }
     return 0;
@@ -76,17 +97,25 @@ int a2audio_write(void *context, const void *data, int length) {
 int a2audio_control(void *context, int command) {
     Output *o = context;
     if (!o) return -1;
-    if (command == 1) return AudioQueueStart(o->queue, NULL);
-    if (command == 2) return AudioQueuePause(o->queue);
+    if (command == 1) { o->wants_start = 1; return start_ready(o); }
+    if (command == 2) {
+        o->wants_start = 0;
+        OSStatus status = o->started ? AudioQueuePause(o->queue) : 0;
+        if (!status) o->started = 0;
+        return status;
+    }
     if (command == 3) {
         OSStatus status = AudioQueueStop(o->queue, true);
+        o->wants_start = o->started = 0;
         pthread_mutex_lock(&o->lock);
         memset(o->busy, 0, sizeof o->busy);
         pthread_mutex_unlock(&o->lock); return status;
     }
     if (command == 4) {
-        OSStatus status = AudioQueueStart(o->queue, NULL);
+        o->wants_start = 1;
+        OSStatus status = start_ready(o);
         if (status) return status;
+        if (!o->started) return 0;
         status = AudioQueueStop(o->queue, false);
         if (status) return status;
         for (int i = 0; i < 1500; i++) {

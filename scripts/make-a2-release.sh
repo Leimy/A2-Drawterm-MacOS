@@ -41,13 +41,14 @@ cp "$repo/license.txt" "$stage/$name/LICENSE-A2.txt"
 cp "$repo/third_party/drawterm-LICENSE" "$stage/$name/LICENSE-drawterm.txt"
 cp "$repo/third_party/stb-vorbis-LICENSE" "$stage/$name/LICENSE-stb-vorbis.txt"
 revision=$(git -C "$repo" rev-parse HEAD)
-if [ -n "$(git -C "$repo" status --porcelain)" ]; then
-    source_state='uncommitted changes present'
+if git -C "$repo" diff --quiet && git -C "$repo" diff --cached --quiet; then
+    source_state='clean tracked source'
 else
-    source_state='clean checkout'
+    source_state='uncommitted tracked changes present'
 fi
-printf 'A2 source base commit: %s\nA2 source state: %s\nDrawterm patch base commit: %s\n' \
-    "$revision" "$source_state" '76847afb4038906bfa135d8f1d2dd956484ba2f4' \
+untracked_count=$(git -C "$repo" ls-files --others --exclude-standard | wc -l | tr -d ' ')
+printf 'A2 source base commit: %s\nA2 tracked source state: %s\nUntracked files excluded from archive: %s\nDrawterm patch base commit: %s\n' \
+    "$revision" "$source_state" "$untracked_count" '76847afb4038906bfa135d8f1d2dd956484ba2f4' \
     > "$stage/$name/BUILD-PROVENANCE.txt"
 cp "$compiler/DarwinAosCompilerAa" "$stage/$name/toolchain/"
 for file in "$compiler"/*.GofAa "$compiler"/*.SymAa; do

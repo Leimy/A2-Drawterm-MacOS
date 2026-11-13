@@ -3,7 +3,13 @@ MODULE Machine;	(** AUTHOR "pjm, G.F."; PURPOSE "Bootstrapping, configuration an
 IMPORT S := SYSTEM, Trace, Unix, Glue;
 
 CONST
-	DefaultConfig = "Color 0  StackSize 128";
+	#IF AARCH64 THEN
+		(* Match the native CLI helpers: GUI call chains need more than the legacy
+		   128 KiB stacks with the current AArch64 backend's larger frames. *)
+		DefaultConfig = "Color 0  StackSize 8192";
+	#ELSE
+		DefaultConfig = "Color 0  StackSize 128";
+	#END
 
 	#IF I386 THEN
 		Version = "A2 Gen. 32-bit, ";

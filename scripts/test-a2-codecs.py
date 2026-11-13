@@ -11,7 +11,7 @@ import wave
 
 repo = Path(__file__).resolve().parent.parent
 bundle = Path(sys.argv[1]).resolve()
-compiler = repo / 'build/native-compiler'
+compiler = Path(os.environ.get('A2_COMPILER_LIBRARY', repo / 'build/native-compiler')).resolve()
 with tempfile.TemporaryDirectory(prefix='a2-codecs-') as temporary:
     directory = Path(temporary)
     env = dict(os.environ, AOSCONFIG='Color 0 StackSize 8192',

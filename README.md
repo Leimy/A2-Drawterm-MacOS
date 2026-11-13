@@ -5,6 +5,9 @@ An experimental native Apple Silicon desktop port is documented in
 substantial assistance from OpenAI Codex under the direction and testing of an
 Active Oberon enthusiast; it is an independent preview, not an ETH release.
 
+[Download the Apple Silicon readiness preview](https://github.com/Leimy/A2-Drawterm-MacOS/releases/tag/preview-2026-11-13-readiness),
+including drawterm and the native compiler toolchain.
+
 ### RadioGlobe on macOS
 
 The native Apple Silicon desktop includes RadioGlobe, based on
@@ -42,8 +45,8 @@ full detail when motion stops. Filtering smooths magnification; detail remains
 limited by the source image's resolution.
 
 See [native build and desktop instructions](README-native-desktop.md) for building,
-launching, controls and verification. These changes are in the source build;
-older preview downloads may not include them.
+launching, controls and verification. The 2026-11-13 readiness preview includes
+these changes; older preview downloads may not include them.
 
 In order to run A2 on your Windows- or Linux-based system, clone this repository and unzip the appropriate binary within the repository. Example (Linux, AMD64):
 ```

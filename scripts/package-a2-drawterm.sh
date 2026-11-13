@@ -22,15 +22,18 @@ clang -arch arm64 -mmacosx-version-min="$minimum_macos" -std=gnu11 -O2 -Wall -We
     "$repo/UnixAos/boot/OberonLoader.c" -o "$loader_tmp"
 cp "$drawterm" "$drawterm_tmp"
 clang -arch arm64 -mmacosx-version-min="$minimum_macos" -dynamiclib -O2 -Wall -Wextra \
-    "$repo/UnixAos/boot/DarwinAudio.c" -framework AudioToolbox -o "$audio_tmp"
+    "$repo/UnixAos/boot/DarwinAudio.c" -framework AudioToolbox -install_name @rpath/libA2Audio.dylib -o "$audio_tmp"
 mv -f "$audio_tmp" "$output/libA2Audio.dylib"
 clang -arch arm64 -mmacosx-version-min="$minimum_macos" -dynamiclib -O2 -Wall -Wextra \
-    "$repo/UnixAos/boot/DarwinRadio.c" "$repo/UnixAos/boot/DarwinCodecs.c" -lcurl -framework AudioToolbox -o "$radio_tmp"
+    "$repo/UnixAos/boot/DarwinRadio.c" "$repo/UnixAos/boot/DarwinCodecs.c" -lcurl -framework AudioToolbox -install_name @rpath/libA2Radio.dylib -o "$radio_tmp"
 mv -f "$radio_tmp" "$output/libA2Radio.dylib"
 mv -f "$loader_tmp" "$output/OberonLoader"
 mv -f "$drawterm_tmp" "$output/drawterm"
 mkdir -p "$output/data"
 cp -R "$repo/data/." "$output/data/"
+if [ -s "$output/Oberon-System.GofAa" ]; then
+    cp "$repo/scripts/NativeOberonMenuPage30.XML" "$output/data/NativeMenuPage30.XML"
+fi
 # Device statistics are unavailable in the hosted Unix runtime; the messages
 # plugin also requires WMMessages.Statistics, which this image does not enable.
 sed -e 's/name="WMPerfMonPluginMessages" value="TRUE"/name="WMPerfMonPluginMessages" value="FALSE"/' \

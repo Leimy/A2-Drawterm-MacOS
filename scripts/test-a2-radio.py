@@ -15,7 +15,7 @@ import wave
 
 repo = Path(__file__).resolve().parent.parent
 bundle = Path(sys.argv[1]).resolve()
-compiler = repo / 'build/native-compiler'
+compiler = Path(os.environ.get('A2_COMPILER_LIBRARY', repo / 'build/native-compiler')).resolve()
 fixture = (bundle / 'data/RadioGlobeTest.mp3').read_bytes()
 codec_fixtures = {'/aac': (bundle / 'data/RadioGlobeTest.aac').read_bytes(),
                   '/aac-he': (bundle / 'data/RadioGlobeTest-HE.aac').read_bytes(),

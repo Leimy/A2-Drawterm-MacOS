@@ -8,7 +8,7 @@ import tempfile
 
 repo = Path(__file__).resolve().parent.parent
 bundle = Path(sys.argv[1]).resolve()
-compiler = repo / 'build/native-compiler'
+compiler = Path(os.environ.get('A2_COMPILER_LIBRARY', repo / 'build/native-compiler')).resolve()
 with tempfile.TemporaryDirectory(prefix='a2-audio-') as directory:
     commands = Path(directory) / 'Audio.txt'
     commands.write_text('RadioGlobeAudio.PlayMP3 RadioGlobeTest.mp3 ~\n'
@@ -27,6 +27,7 @@ with tempfile.TemporaryDirectory(prefix='a2-audio-') as directory:
                            cwd=directory, env=env, capture_output=True, text=True, timeout=30)
     print(probe.stdout + probe.stderr)
     assert probe.returncode == 0 and 'AUDIO PASS channels, mixer, backpressure, resume, stop, close' in probe.stdout
+    assert not any(s in probe.stdout + probe.stderr for s in ('DarwinSound error', 'Trap ', 'native signal', 'Command not successful'))
     result = subprocess.run([str(bundle / 'OberonLoader'), 'execute', str(commands)],
                             cwd=directory, env=env, capture_output=True, text=True, timeout=40)
     output = result.stdout + result.stderr

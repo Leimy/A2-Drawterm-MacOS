@@ -8,6 +8,7 @@ import hashlib
 import os
 from pathlib import Path
 import selectors
+import select
 import socket
 import struct
 import subprocess
@@ -204,6 +205,15 @@ def main():
                 if key.data == 'log':
                     data = os.read(process.stdout.fileno(), 65536)
                     if not data:
+                        # A dying runtime can close the device before the selector
+                        # drains its trap report. Keep that evidence in the log.
+                        drain_until = time.monotonic() + 0.5
+                        while time.monotonic() < drain_until:
+                            readable, _, _ = select.select([process.stdout], [], [], 0.05)
+                            if readable:
+                                tail = os.read(process.stdout.fileno(), 65536)
+                                if not tail: break
+                                text = tail.decode(errors='replace'); print(text, end='', flush=True); output += text
                         if (args.shutdown or args.tetris_shutdown) and shutdown_index == len(shutdown_events) and 'System event log shut down' in output:
                             print('PASS: System > Shutdown exited the native A2 process')
                             return
@@ -225,12 +235,21 @@ def main():
                 else:
                     data = host.recv(65536)
                     if not data:
+                        # A dying runtime can close the device before the selector
+                        # drains its trap report. Keep that evidence in the log.
+                        drain_until = time.monotonic() + 0.5
+                        while time.monotonic() < drain_until:
+                            readable, _, _ = select.select([process.stdout], [], [], 0.05)
+                            if readable:
+                                tail = os.read(process.stdout.fileno(), 65536)
+                                if not tail: break
+                                text = tail.decode(errors='replace'); print(text, end='', flush=True); output += text
                         if (args.shutdown or args.tetris_shutdown) and shutdown_index == len(shutdown_events) and 'System event log shut down' in output:
                             process.wait(timeout=2)
                             if process.returncode != 0: raise RuntimeError(f'A2 shutdown returned {process.returncode}')
                             print('PASS: System > Shutdown exited the native A2 process')
                             return
-                        raise RuntimeError('A2 closed the device connection')
+                        raise RuntimeError(f'A2 closed the device connection (exit={process.poll()})')
                     incoming.extend(data)
                     while len(incoming) >= 7:
                         size, kind, tag = struct.unpack_from('<IBH', incoming)

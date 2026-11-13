@@ -31,15 +31,19 @@ BEGIN
 		END;
 		INC(pos);
 	END;
-	size := pos + 1;
+	(* StdIOShell consumes argv[0] as one token before reading commands.
+	   Preserve that boundary when the executable's directory contains spaces. *)
+	size := pos + 3;
 	NEW(str, size);
 	pos := 0;
 	FOR i := 0 TO argc-1 DO
+		IF i = 0 THEN str[pos] := '"'; INC(pos) END;
 		j := 0;
 		WHILE argv[i,j] # 0X DO
 			str[pos] := argv[i,j];
 			INC(pos); INC(j);
 		END;
+		IF i = 0 THEN str[pos] := '"'; INC(pos) END;
 		str[pos] := " ";
 		INC(pos);
 	END;

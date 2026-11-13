@@ -61,6 +61,8 @@ A2_COMPILER_LIBRARY="$bundle/toolchain" \
 
 A2_COMPILER_CORE="$bundle/toolchain/DarwinAosCompilerAa" \
 A2_COMPILER_LIBRARY="$bundle/toolchain" \
+A2_LOADER="$bundle/OberonLoader" \
+A2_DRAWTERM="$bundle/drawterm" \
   scripts/build-a2-oberon.sh build/native-desktop
 ```
 
@@ -74,14 +76,23 @@ use. The compiler seed can also rebuild a native compiler with
 
 This is a preview, not a complete A2 platform release. The desktop, editor,
 selected applications, native Fox compilation, local drawterm input, resizing,
-clipboard, and shutdown have been exercised on Apple Silicon. The GUI builder
-is not included: its generic-module import is currently rejected by the native
-compiler. The embedded classic Oberon environment is useful but still has an
-i80386 compiler. Broader application coverage and long-running stability need
-more testing.
+clipboard, and shutdown have been exercised on Apple Silicon. The GUI builder,
+expanded desktop applications, socket-backed networking and native macOS audio
+are included. RadioGlobe includes station browsing, texture filtering and native
+MP3, AAC/AAC+, Opus, FLAC and Vorbis playback. See `README-native-desktop.md` for
+controls and individual application limits.
+
+The embedded classic Oberon environment still has an i80386 compiler; Fox/PET
+provide native AArch64 compilation. BimBrowser supports local files and HTTP,
+without modern browser features or HTTPS. External FTP use, automatic persistence
+of desktop customization, and unsupported radio formats such as HLS/playlists
+remain outside the validated coverage. Opening and painting an application is
+not a full functional test. Bounded stress tests do not establish multi-day
+stability, and the macOS 13 deployment target does not establish testing on every
+supported operating-system version.
 
 The archive includes `LICENSE-A2.txt` (the original A2 distribution notice),
-`LICENSE-drawterm.txt`, and the original `data` license notices. Preserve
+`LICENSE-drawterm.txt`, `LICENSE-stb-vorbis.txt`, and the original `data` license notices. Preserve
 these when redistributing it.
 
 To make another archive after a native build, run
@@ -89,4 +100,59 @@ To make another archive after a native build, run
 `build/native-compiler-selfhost2` as the compiler seed by default; set
 `A2_RELEASE_COMPILER_DIR` to the extracted archive's `toolchain` directory
 when that local build directory is unavailable. The archive includes a file
-hash manifest and records whether its source tree had uncommitted changes.
+hash manifest and records the tracked-source revision/state and how many untracked
+files were excluded. Untracked local files are not bundled.
+
+## Release-readiness checks (2026-11-13)
+
+The native compiler was rebuilt from source and used to rebuild itself; the
+two resulting compiler images were byte-for-byte identical. The rebuilt compiler
+passed 6,097 applicable Fox test cases. Two tests for other architectures were
+skipped, and six legacy NIL cases have AArch64 replacements. Native ABI,
+instruction encoding, complex arithmetic, trigonometry, active-object and
+compile/link/load regressions also passed.
+
+The stack-corrected desktop passed all 61 bundle checks, including 46 menu
+applications, resize, zoom, clipboard, GUI compilation, shutdown, radio playback
+and globe geometry. Its inventory contains 442 object modules and 64 menu
+commands, with no missing command modules. These counts describe the tested
+desktop selection, not all hardware and platform variants in the upstream tree.
+
+A bounded 60-second concurrent allocation/GC test completed 21,224 worker
+objects, followed by 200 dynamic module load/unload cycles. These are stress
+checks, not a claim of indefinite stability. A wildcard matcher regression
+checks 906 cases, including 255-character names, on a 128 KiB worker stack.
+The filename matcher now uses bounded stack space. The AArch64 runtime default
+stack is 8 MiB, matching the native CLI/build helpers' existing setting; the
+desktop launcher and direct loader inherited a 128 KiB default that overflowed
+in deeper GUI paths.
+macOS's stack guard caught those overflows; disabling protections is unnecessary.
+The Unix argument adapter also preserves the executable-name token when its
+directory contains spaces; a regression compiles and runs through a physically
+relocated loader.
+The native audio bridge defers AudioQueue startup until PCM has been queued,
+including when A2 calls `Start` first. An actual startup failure is returned to
+the producer instead of leaving it waiting indefinitely for an idle queue.
+
+The isolated bundle was also extracted under `~/srcs` on a second Apple Silicon
+Mac. Its checksum verification, bundled compile-and-run example, PET, embedded
+Oberon and shutdown checks passed without a source checkout. Both test machines
+ran macOS 27.2.1. This does not exercise a browser download's Gatekeeper approval
+or establish compatibility with older macOS releases.
+
+To repeat the local checks against an explicit freshly built toolchain:
+
+```sh
+python3 scripts/check-a2-release.py build/native-desktop \
+  --compiler build/native-compiler --all-menus \
+  --report-dir build/native-release-checks
+python3 scripts/test-a2-filename-match.py --compiler build/native-compiler
+python3 scripts/test-a2-cli-paths.py --compiler build/native-compiler
+python3 scripts/test-a2-release-soak.py --compiler build/native-compiler \
+  --seconds 60 --cycles 200
+```
+
+The bundle checker writes a source/menu inventory, binary dependency audit,
+per-check logs and a JSON summary. Its menu checks establish that applications
+open and paint; they do not certify every application feature. The test drivers
+use Python, while the distributed launcher, verifier and compiler do not need it.

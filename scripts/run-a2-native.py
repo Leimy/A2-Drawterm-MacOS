@@ -40,7 +40,7 @@ def main():
     elif command and command[0] == 'link':
         command = [command[0], '--extension=.GofAa', *command[1:]]
     env = os.environ.copy()
-    # Fox's recursive semantic checker needs more than the runtime's 128 KiB default.
+    # Also support older compiler seeds with the legacy 128 KiB default.
     env.setdefault('AOSCONFIG', 'Color 0 StackSize 8192')
     env['PWD'] = str(Path.cwd())
     env['OBERON_CORE'] = str(args.core.resolve())

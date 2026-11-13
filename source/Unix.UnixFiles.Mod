@@ -950,13 +950,24 @@ TYPE
 	END CleanPath;
 
 
-	PROCEDURE Match( CONST name, pat: ARRAY OF CHAR;  i, j: SIGNED16 ): BOOLEAN;
+	PROCEDURE Match( CONST name, pat: ARRAY OF CHAR;  i, j: SIGNED32 ): BOOLEAN;
+	VAR star, retry: SIGNED32;
 	BEGIN
-		IF (name[i] = 0X) & (pat[j] = 0X) THEN  RETURN TRUE
-		ELSIF pat[j] # "*" THEN  RETURN (name[i] = pat[j]) & Match( name, pat, i + 1, j + 1 )
-		ELSE  (* pat[j] = "*", name[i] may be 0X *)
-			RETURN Match( name, pat, i, j + 1 ) OR ((name[i] # 0X) & Match( name, pat, i + 1, j ))
-		END
+		(* Remember the last star instead of recursing for every filename character.
+		   Long legal filenames can otherwise overflow an active object's stack. *)
+		star := -1; retry := i;
+		WHILE name[i] # 0X DO
+			IF pat[j] = "*" THEN
+				star := j; INC(j); retry := i
+			ELSIF name[i] = pat[j] THEN
+				INC(i); INC(j)
+			ELSIF star >= 0 THEN
+				INC(retry); i := retry; j := star + 1
+			ELSE RETURN FALSE
+			END
+		END;
+		WHILE pat[j] = "*" DO INC(j) END;
+		RETURN pat[j] = 0X
 	END Match;
 
 

@@ -20,11 +20,16 @@ BEGIN {ACTIVE}
 END Producer;
 
 PROCEDURE Run*;
-VAR device: SoundDevices.Driver; first, second: SoundDevices.Channel;
+VAR device: SoundDevices.Driver; first, second, empty: SoundDevices.Channel;
 	mixer: SoundDevices.MixerChannel; producer, other: Producer; timer: Kernel.Timer; res: INTEGER;
 BEGIN
-	first := NIL; second := NIL;
+	first := NIL; second := NIL; empty := NIL;
 	device := DarwinSound.GetDevice(); ASSERT(device # NIL);
+	(* Start is legal before any PCM arrives; empty pause/stop/close must not
+	   try to start an empty macOS AudioQueue. *)
+	device.OpenPlayChannel(empty, 44100, 16, 2, SoundDevices.FormatPCM, res);
+	ASSERT((empty # NIL) & (res = 0));
+	empty.Start; empty.Pause; empty.Start; empty.Stop; empty.Close; empty := NIL;
 	device.OpenPlayChannel(first, 0, 16, 2, SoundDevices.FormatPCM, res);
 	ASSERT(first = NIL); ASSERT(res = SoundDevices.ResUnsupportedFrequency);
 	device.OpenPlayChannel(first, 44100, 16, 2, SoundDevices.FormatPCM, res);
@@ -46,6 +51,7 @@ BEGIN
 	second.Close; second := NIL;
 	KernelLog.String("AUDIO PASS channels, mixer, backpressure, resume, stop, close"); KernelLog.Ln
 FINALLY
+	IF empty # NIL THEN empty.Close END;
 	IF first # NIL THEN first.Close END;
 	IF second # NIL THEN second.Close END
 END Run;
