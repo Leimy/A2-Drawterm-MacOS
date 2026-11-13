@@ -154,9 +154,15 @@ A [16-second RadioGlobe video demo](https://github.com/Leimy/A2-Drawterm-MacOS/r
 shows rotation, inertia, station markers and zoom. The silent MP4 records actual
 committed framebuffer updates from A2's drawterm/9P interface at 800x600 and
 60 fps on an independent capture thread, using finely stepped scripted pointer
-input. Encoding runs on another thread with a bounded queue, so it does not
-block A2's display protocol. Frames repeat naturally when the application is
+input. Capture and encoding run on separate threads with a bounded queue to
+reduce recording overhead. Frames repeat naturally when the application is
 still; no motion interpolation is added. It does not capture other Mac windows.
+
+**Recording caveat:** This video illustrates the interface, not live performance.
+It was recorded through a scripted test harness rather than an ordinary interactive
+drawterm session. Its rotation and zoom timing—especially the stepped zoom in
+and out—are not representative of using RadioGlobe directly. The 60 fps capture
+rate should not be interpreted as an application performance measurement.
 
 To record another clip from a source build on macOS:
 
@@ -166,9 +172,9 @@ sh scripts/record-a2-radioglobe.sh build/native-stations-2026 /tmp/my-radioglobe
 
 The development recording tool writes a `.timing.json` sidecar with capture and
 source-frame timestamps, pointer events and encoder queue statistics. Its 9P
-input loop avoids repeated full-screen hashing during a recording. This corrects
-the original 20 fps demo, whose capture path made motion look less smooth than
-the live application.
+input loop avoids repeated full-screen hashing during a recording. These changes reduce the
+original recorder's overhead, but the recording still does not reproduce the
+timing or responsiveness of an ordinary interactive session.
 
 The recording tool uses the existing Python input driver and a Swift
 helper compiled with the Xcode command-line tools. macOS AVFoundation encodes

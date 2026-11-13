@@ -18,6 +18,12 @@ MP3, AAC/AAC+, Opus and native/Ogg FLAC, plus Ogg Vorbis.
 — 16 seconds, 60 fps capture, silent H.264 MP4, about 4 MB. The clip shows rotation, inertia,
 station markers and zoom, recorded from A2's drawterm/9P framebuffer.
 
+**Recording caveat:** This video illustrates the interface, not live performance.
+It was recorded through a scripted test harness rather than an ordinary interactive
+drawterm session. Its rotation and zoom timing—especially the stepped zoom in
+and out—are not representative of using RadioGlobe directly. The 60 fps capture
+rate should not be interpreted as an application performance measurement.
+
 [![Watch RadioGlobe rotate and zoom](docs/images/radioglobe-demo.png)](https://github.com/Leimy/A2-Drawterm-MacOS/releases/download/radioglobe-demo-2026-11-13/radioglobe-demo.mp4)
 
 The current source build improves close zoom with **bilinear filtering written
