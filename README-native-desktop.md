@@ -150,6 +150,23 @@ bounds. `NativeScaleBenchmark.Mod` measures the CPU scaling cost separately from
 globe rendering and drawterm transport; `--paint-stats` on
 `scripts/test-a2-desktop-input.py` reports upload volume.
 
+A [16-second RadioGlobe video demo](https://github.com/Leimy/A2-Drawterm-MacOS/releases/tag/radioglobe-demo-2026-11-13)
+shows rotation, inertia, station markers and zoom. The silent MP4 records actual
+committed framebuffer updates from A2's drawterm/9P interface at 800x600 and
+20 fps, using scripted pointer input. It does not capture other Mac windows.
+
+To record another clip from a source build on macOS:
+
+```sh
+sh scripts/record-a2-radioglobe.sh build/native-stations-2026 /tmp/my-radioglobe-demo.mp4
+```
+
+The development recording tool uses the existing Python input driver and a Swift
+helper compiled with the Xcode command-line tools. macOS AVFoundation encodes
+H.264; no ffmpeg installation is needed. It writes the MP4 and a matching PNG
+poster, refuses to overwrite an existing video, and opens a separate A2 process
+with a temporary working directory. The A2 runtime needs neither recording tool.
+
 For native audio playback in BlueShell or the terminal Oberon shell, run
 `RadioGlobeAudio.PlayMP3 RadioGlobeTest.mp3`. The `DarwinSound` driver implements
 A2's `SoundDevices` interface using macOS AudioQueue. It supports mono/stereo,

@@ -14,6 +14,12 @@ Open **Demos → RadioGlobe**; drag to rotate, use the wheel to zoom, and click 
 marker to play. **Stations** opens the searchable catalogue. Playback supports
 MP3, AAC/AAC+, Opus and native/Ogg FLAC, plus Ogg Vorbis.
 
+[**Watch the RadioGlobe demo**](https://github.com/Leimy/A2-Drawterm-MacOS/releases/download/radioglobe-demo-2026-11-13/radioglobe-demo.mp4)
+— 16 seconds, silent H.264 MP4, about 4 MB. The clip shows rotation, inertia,
+station markers and zoom, recorded from A2's drawterm/9P framebuffer.
+
+[![Watch RadioGlobe rotate and zoom](docs/images/radioglobe-demo.png)](https://github.com/Leimy/A2-Drawterm-MacOS/releases/download/radioglobe-demo-2026-11-13/radioglobe-demo.mp4)
+
 The current source build improves close zoom with **bilinear filtering written
 in Active Oberon**, a **4096×2048 Earth texture**, and interpolated angle lookup
 tables. The texture wraps across the longitude seam and clamps at the poles.

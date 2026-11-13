@@ -39,6 +39,8 @@ def main():
     parser.add_argument('--tetris-play', action='store_true', help='start Tetris with Space and require an updated game board')
     parser.add_argument('--tetris-shutdown', action='store_true', help='start Tetris, then shut A2 down from the menu')
     parser.add_argument('--three-d-zoom', action='store_true', help='right-drag in Demos > 3D Explorer and require the scene to change')
+    parser.add_argument('--radio-globe-video', type=Path, help='record a silent rotation/zoom demo as H.264 MP4')
+    parser.add_argument('--video-encoder', help='native encoder executable for --radio-globe-video')
     parser.add_argument('--radio-globe-quality', action='store_true', help='check filtered texture projection at deep zoom')
     parser.add_argument('--radio-globe-regression', action='store_true', help='check polar rendering, inertia, friction, grab and close')
     parser.add_argument('--radio-globe-interaction', action='store_true', help='drag and wheel Demos > RadioGlobe and require the Earth to change')
@@ -83,6 +85,14 @@ def main():
         parser.error('--radio-globe-stations requires --menu-app radio-globe')
     if args.radio_globe_quality and args.radio_globe_regression:
         parser.error('choose one RadioGlobe rendering check')
+    radio_video = None
+    if args.radio_globe_video:
+        if args.radio_globe_quality or args.radio_globe_regression or args.radio_globe_interaction or args.radio_globe_audio or args.radio_globe_stations:
+            parser.error('choose recording or a RadioGlobe input test')
+        if args.menu_app != 'radio-globe' or not args.video_encoder:
+            parser.error('--radio-globe-video requires --menu-app radio-globe and --video-encoder')
+        from a2_radio_globe_video import RadioGlobeVideo
+        radio_video = RadioGlobeVideo(args.radio_globe_video, args.video_encoder)
     radio_checks = None
     if args.radio_globe_regression or args.radio_globe_quality:
         if args.menu_app != 'radio-globe' or args.radio_globe_interaction:
@@ -262,7 +272,9 @@ def main():
                                 error = b'named image no longer valid'
                                 host.sendall(packet(107, tag, struct.pack('<H', len(error)) + error))
                                 continue
-                            if draw == b'v': flushes += 1; last_paint = time.monotonic()
+                            if draw == b'v':
+                                flushes += 1; last_paint = time.monotonic()
+                                if radio_video is not None: radio_video.commit(pixels, screen_width)
                             if draw[:1] == b'y':
                                 image_id, left, top, right, bottom = struct.unpack_from('<Iiiii', draw, 1)
                                 left -= origin_x; right -= origin_x
@@ -332,7 +344,7 @@ def main():
                     raise RuntimeError(f'{menu_app} did not paint a window')
                 if menu_app == 'oberon' and pixels[(200 * screen_width + 200) * 3] < 200:
                     raise RuntimeError('Oberon viewer area is still blank')
-                if not play_tetris and not args.shell_command and not args.backdrop_select and not args.three_d_zoom and not args.radio_globe_interaction and not args.radio_globe_regression and not args.radio_globe_quality and not args.radio_globe_audio and not args.radio_globe_stations:
+                if not play_tetris and not args.shell_command and not args.backdrop_select and not args.three_d_zoom and not args.radio_globe_interaction and not args.radio_globe_regression and not args.radio_globe_quality and not args.radio_globe_video and not args.radio_globe_audio and not args.radio_globe_stations:
                     if menu_app == 'mandelbrot' and 'Mandelbrot render complete' not in output:
                         continue
                     if menu_app == 'audio-test' and 'Native MP3 playback complete' not in output:
@@ -353,6 +365,14 @@ def main():
                     raise RuntimeError('right-button drag did not zoom the 3D scene')
                 print('PASS: right-button drag zoomed the 3D scene')
                 return
+            if radio_video is not None and tetris_sent_at is not None and time.monotonic() - tetris_sent_at > 2:
+                mouse, done = radio_video.step(pixels, screen_width, mouse_tag is not None)
+                if done:
+                    return
+                if mouse is not None:
+                    event = ('m' + ''.join(f'{n:11d} ' for n in [*mouse, int(time.monotonic()*1000) % 10000000])).encode()
+                    host.sendall(packet(117, mouse_tag, struct.pack('<I', len(event)) + event))
+                    mouse_tag = None
             if radio_checks is not None and tetris_sent_at is not None and time.monotonic() - tetris_sent_at > 2:
                 mouse, done = radio_checks.step(pixels, screen_width, mouse_tag is not None)
                 if done:
@@ -550,6 +570,7 @@ def main():
                     return
         raise RuntimeError('timed out waiting for desktop initialization or button callbacks')
     finally:
+        if radio_video is not None: radio_video.close()
         if args.paint_stats:
             print(f'Paint stats: {upload_count} uploads, {partial_uploads} partial-width, '
                   f'{upload_bytes} pixel bytes ({full_strip_bytes} with full-width strips)')
