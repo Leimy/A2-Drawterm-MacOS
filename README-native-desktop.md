@@ -139,6 +139,12 @@ pressing the left button grabs and stops it immediately. The motion follows
 with decay based on elapsed time. The globe renders a quicker preview during
 motion and restores full detail when it stops. During desktop magnification,
 moving frames use nearest-neighbor scaling; smooth scaling returns at rest.
+For a visual comparison, see the [README screenshots](README.md#radioglobe-on-macos).
+On the development Mac, sampled full-quality deep-zoom frames in a 600x500
+viewport had median CPU render times of 58.5 ms with filtering and the larger
+texture, versus 35 ms previously. These measurements exclude drawterm display
+latency. The quicker motion preview remains enabled; rendering cost depends on
+viewport size, zoom and hardware.
 The drawterm driver uploads only the changed rectangle, including its horizontal
 bounds. `NativeScaleBenchmark.Mod` measures the CPU scaling cost separately from
 globe rendering and drawterm transport; `--paint-stats` on

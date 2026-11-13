@@ -5,6 +5,34 @@ An experimental native Apple Silicon desktop port is documented in
 substantial assistance from OpenAI Codex under the direction and testing of an
 Active Oberon enthusiast; it is an independent preview, not an ETH release.
 
+### RadioGlobe on macOS
+
+The native Apple Silicon desktop includes RadioGlobe, based on
+[David Leimbach's 9front application](https://github.com/leimy/radioglobe), with
+9,297 catalogue stations, globe markers, station search and native audio playback.
+Open **Demos → RadioGlobe**; drag to rotate, use the wheel to zoom, and click a
+marker to play. **Stations** opens the searchable catalogue. Playback supports
+MP3, AAC/AAC+, Opus and native/Ogg FLAC, plus Ogg Vorbis.
+
+The current source build improves close zoom with **bilinear filtering written
+in Active Oberon**, a **4096×2048 Earth texture**, and interpolated angle lookup
+tables. The texture wraps across the longitude seam and clamps at the poles.
+These captures show the same view and zoom before and after the change:
+
+| Previous nearest-neighbor rendering | Filtered high-resolution rendering |
+| --- | --- |
+| ![RadioGlobe close zoom before filtering](docs/images/radioglobe-zoom-before.png) | ![RadioGlobe close zoom after filtering](docs/images/radioglobe-zoom-after.png) |
+
+The larger texture uses about 32 MiB decoded. On the development Mac, sampled
+full-quality deep-zoom frames in a 600×500 viewport took a median 58.5 ms,
+compared with 35 ms before. Rotation retains the faster preview path and restores
+full detail when motion stops. Filtering smooths magnification; detail remains
+limited by the source image's resolution.
+
+See [native build and desktop instructions](README-native-desktop.md) for building,
+launching, controls and verification. These changes are in the source build;
+older preview downloads may not include them.
+
 In order to run A2 on your Windows- or Linux-based system, clone this repository and unzip the appropriate binary within the repository. Example (Linux, AMD64):
 ```
 git clone https://gitlab.inf.ethz.ch/felixf/oberon.git
