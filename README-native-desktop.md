@@ -123,9 +123,17 @@ unsupported format; failures are reported in the globe rather than freezing it.
 
 Before selecting a marker, **Play radio** uses `RadioGlobeStation.txt`, whose
 default is [SomaFM Groove Salad](https://somafm.com/groovesalad/directstreamlinks.html).
-Closing a globe window that started playback also requests a stop. Its bundled 1024x512 Earth
+Closing a globe window that started playback also requests a stop. Its bundled 4096x2048 Earth
 texture is downsampled from radioglobe's `earth.mask`; no Python is needed at
-runtime. Drag and release to spin the globe; friction gradually stops it, and
+runtime. The texture has four times the angular resolution of the original preview
+(16 times as many texels, about 32 MiB decoded). Active Oberon samples it with
+fixed-point bilinear interpolation, wraps longitude across the seam and clamps
+latitude at the poles. Interpolated angle tables avoid visible coordinate steps;
+near-pole latitude uses the exact math routine. Magnification eventually reveals
+the source image's finite resolution, but no longer exposes hard texel blocks.
+The committed PNG is sufficient to build; `scripts/import-radioglobe-earth.py`
+optionally regenerates it from the original EARTHTEX BGR source using macOS sips.
+Drag and release to spin the globe; friction gradually stops it, and
 pressing the left button grabs and stops it immediately. The motion follows
 [libview's orbit controller](https://github.com/Leimy/libview/blob/master/orbit.c),
 with decay based on elapsed time. The globe renders a quicker preview during
@@ -197,6 +205,11 @@ duration for generated MP3, AAC, AAC+, FLAC, Opus and Vorbis fixtures, including
 chained Vorbis/Opus/FLAC tracks, live Opus sequence offsets and MP3 frame synchronization. `python3 scripts/test-a2-stations.py BUILD_DIRECTORY` checks the
 catalogue snapshots, parsing, marker projection and picking. Pure globe geometry
 tests use an empty catalogue fixture to measure the texture independently of markers.
+`python3 scripts/test-a2-globe-texture.py BUILD_DIRECTORY` checks bilinear color
+mixing, seam wrapping, pole clamping, subtexel continuity and angle accuracy.
+Add `--radio-globe-quality --menu-app radio-globe` to the desktop input harness
+for deterministic deep-zoom projection checks against an independent floating-point
+bilinear reference; `--radio-globe-regression` covers poles, seams, inertia and resize.
 
 The offline RadioGlobe codec command is also available in BlueShell:
 `RadioGlobeAudio.DecodeMP3 input.mp3 output.wav`. It uses A2's MP3 decoder and

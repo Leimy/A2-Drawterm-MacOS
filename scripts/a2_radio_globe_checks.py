@@ -9,11 +9,11 @@ import time
 
 
 class RadioGlobeChecks:
-    def __init__(self, capture=None):
+    def __init__(self, capture=None, texture=None, quality=False):
         self.capture = capture
         self.check_deadline = None
         # sips is bundled with macOS; the test needs no imaging package.
-        texture = Path(__file__).resolve().parents[1] / 'data/RadioGlobeEarth.png'
+        texture = texture or Path(__file__).resolve().parents[1] / 'data/RadioGlobeEarth.png'
         with tempfile.TemporaryDirectory(prefix='a2-globe-texture-') as work:
             bmp = Path(work) / 'earth.bmp'
             subprocess.run(['sips', '-s', 'format', 'bmp', str(texture), '--out', str(bmp)],
@@ -28,9 +28,13 @@ class RadioGlobeChecks:
         self.texture = []
         for y in range(self.th):
             row = offset + (self.th - 1 - y if height > 0 else y) * stride
-            self.texture.append([tuple(data[row + x * (bits // 8):row + x * (bits // 8) + 3][::-1])
-                                 for x in range(self.tw)])
+            pixel_size = bits // 8
+            rgb = bytearray(self.tw * 3)
+            for channel in range(3):
+                rgb[channel::3] = data[row + 2 - channel:row + self.tw * pixel_size:pixel_size]
+            self.texture.append(rgb)
         self.lat, self.lon = math.radians(20), 0
+        self.radius = 205
         self.index = 0
         self.due = 0
         self.snapshot = None
@@ -99,13 +103,25 @@ class RadioGlobeChecks:
                 expanded.append(('mouse', action[1], 0.6))
         self.actions = expanded
 
+        if quality:
+            self.actions = [('image', 'initial', 0.1), ('mouse', (380, 318, 0), 0.5)]
+            radius = 205
+            for _ in range(28):
+                self.actions.extend([('mouse', (380, 318, 16), 0.12),
+                                     ('mouse', (380, 318, 0), 0.12)])
+                radius += max(15, radius // 10)
+            self.actions.extend([('radius', radius, 1), ('image', 'close zoom', 0),
+                                 ('mouse', (672, 70, 0), 0.6),
+                                 ('mouse', (672, 70, 1), 0.6),
+                                 ('mouse', (672, 70, 0), 1.5), ('closed', None, 0)])
+
     def check_image(self, pixels, width, label):
         bad = total = 0
         cl, sl = math.cos(self.lat), math.sin(self.lat)
         co, so = math.cos(self.lon), math.sin(self.lon)
         for y in range(60, 430, 11):
             for x in range(110, 490, 11):
-                sx, sy = (x - 300) / 205, (238 - y) / 205
+                sx, sy = (x - 300) / self.radius, (238 - y) / self.radius
                 rr = sx * sx + sy * sy
                 if rr > 0.94:
                     continue
@@ -113,16 +129,24 @@ class RadioGlobeChecks:
                 px = -so*sx - sl*co*sy + cl*co*sz
                 py = co*sx - sl*so*sy + cl*so*sz
                 pz = cl*sy + sl*sz
-                u = min(self.tw - 1, int((math.atan2(py, px)/(2*math.pi) + 0.5)*self.tw))
-                v = min(self.th - 1, int((0.5 - math.asin(max(-1, min(1, pz)))/math.pi)*self.th))
+                u = (math.atan2(py, px)/(2*math.pi) + 0.5)*self.tw - 0.5
+                v = max(0, min(self.th - 1, (0.5 - math.asin(max(-1, min(1, pz)))/math.pi)*self.th - 0.5))
+                x0, y0 = math.floor(u), math.floor(v)
+                fx, fy = u - x0, v - y0
                 light = 0.30 + 0.70 * max(0, -0.35*sx + 0.45*sy + 0.82*sz)
                 pos = ((y + 80)*width + x + 80)*3
                 actual = pixels[pos:pos + 3]
-                # LUT rounding can move a sample across a texel edge. Accept
-                # nearby texels, but not the large erroneous polar cap.
-                error = min(max(abs(actual[c] - int(self.texture[min(self.th-1, max(0, v+dv))][(u+du) % self.tw][c]*light))
-                                for c in range(3)) for du in (-1, 0, 1) for dv in (-1, 0, 1))
-                bad += error > 4
+                expected = []
+                for channel in range(3):
+                    def texel(x, y):
+                        return self.texture[min(self.th - 1, y)][(x % self.tw)*3 + channel]
+                    value = ((texel(x0, y0)*(1-fx) + texel(x0+1, y0)*fx)*(1-fy) +
+                             (texel(x0, y0+1)*(1-fx) + texel(x0+1, y0+1)*fx)*fy)
+                    expected.append(value*light)
+                # Independent exact trig and floating interpolation versus AO's
+                # interpolated trig tables and 8-bit fixed-point color weights.
+                error = max(abs(actual[c] - expected[c]) for c in range(3))
+                bad += error > 3
                 total += 1
         if bad > total * 0.03:
             raise RuntimeError(f'RadioGlobe {label}: {bad}/{total} samples disagree with independent spherical projection')
@@ -138,6 +162,9 @@ class RadioGlobeChecks:
                    ((0, 238), (599, 238), (300, 0), (300, 499))):
                 raise RuntimeError('Globe zoom did not extend beyond all window edges')
             print('PASS: globe zoom extends beyond viewport and clips at all four edges')
+            if self.capture:
+                name = self.capture.with_name(self.capture.stem + '-close-zoom.ppm')
+                name.write_bytes(f'P6\n{screen_width} {len(pixels)//(screen_width*3)}\n255\n'.encode() + pixels)
             return
         w, h = dimensions
         cx, cy = w//2, h//2 - 12
@@ -184,6 +211,8 @@ class RadioGlobeChecks:
             if self.capture:
                 name = self.capture.with_name(self.capture.stem + '-' + value.replace(' ', '-') + '.ppm')
                 name.write_bytes(f'P6\n{width} {len(pixels)//(width*3)}\n255\n'.encode() + pixels)
+        elif kind == 'radius':
+            self.radius = value
         elif kind == 'rotate':
             self.lon += value[0] / 205
             self.lat = max(-math.pi/2, min(math.pi/2, self.lat + value[1] / 205))

@@ -39,6 +39,7 @@ def main():
     parser.add_argument('--tetris-play', action='store_true', help='start Tetris with Space and require an updated game board')
     parser.add_argument('--tetris-shutdown', action='store_true', help='start Tetris, then shut A2 down from the menu')
     parser.add_argument('--three-d-zoom', action='store_true', help='right-drag in Demos > 3D Explorer and require the scene to change')
+    parser.add_argument('--radio-globe-quality', action='store_true', help='check filtered texture projection at deep zoom')
     parser.add_argument('--radio-globe-regression', action='store_true', help='check polar rendering, inertia, friction, grab and close')
     parser.add_argument('--radio-globe-interaction', action='store_true', help='drag and wheel Demos > RadioGlobe and require the Earth to change')
     parser.add_argument('--radio-globe-audio', action='store_true', help='click RadioGlobe Play radio and Stop and require streaming playback logs')
@@ -80,14 +81,16 @@ def main():
         parser.error('--radio-globe-audio requires --menu-app radio-globe')
     if args.radio_globe_stations and args.menu_app != 'radio-globe':
         parser.error('--radio-globe-stations requires --menu-app radio-globe')
+    if args.radio_globe_quality and args.radio_globe_regression:
+        parser.error('choose one RadioGlobe rendering check')
     radio_checks = None
-    if args.radio_globe_regression:
+    if args.radio_globe_regression or args.radio_globe_quality:
         if args.menu_app != 'radio-globe' or args.radio_globe_interaction:
-            parser.error('--radio-globe-regression requires --menu-app radio-globe without --radio-globe-interaction')
+            parser.error('RadioGlobe rendering checks require --menu-app radio-globe without --radio-globe-interaction')
         from a2_radio_globe_checks import RadioGlobeChecks
-        radio_checks = RadioGlobeChecks(args.capture)
+        radio_checks = RadioGlobeChecks(args.capture, Path(args.core).resolve().parent / 'data/RadioGlobeEarth.png', args.radio_globe_quality)
     geometry_work = None
-    if args.radio_globe_regression:
+    if args.radio_globe_regression or args.radio_globe_quality:
         geometry_work = tempfile.TemporaryDirectory(prefix='a2-globe-geometry-')
         args.cwd = Path(geometry_work.name)
         (args.cwd / 'RadioGlobeStations.txt').write_text('# Geometry fixture has no station overlays\n')
@@ -329,7 +332,7 @@ def main():
                     raise RuntimeError(f'{menu_app} did not paint a window')
                 if menu_app == 'oberon' and pixels[(200 * screen_width + 200) * 3] < 200:
                     raise RuntimeError('Oberon viewer area is still blank')
-                if not play_tetris and not args.shell_command and not args.backdrop_select and not args.three_d_zoom and not args.radio_globe_interaction and not args.radio_globe_regression and not args.radio_globe_audio and not args.radio_globe_stations:
+                if not play_tetris and not args.shell_command and not args.backdrop_select and not args.three_d_zoom and not args.radio_globe_interaction and not args.radio_globe_regression and not args.radio_globe_quality and not args.radio_globe_audio and not args.radio_globe_stations:
                     if menu_app == 'mandelbrot' and 'Mandelbrot render complete' not in output:
                         continue
                     if menu_app == 'audio-test' and 'Native MP3 playback complete' not in output:

@@ -1,54 +1,17 @@
 MODULE WMRadioGlobe; (** Interactive radio globe based on David Leimbach's 9front radioglobe. *)
 
 IMPORT Math64, Raster, WMGraphics, WMRectangles, WMWindowManager, Strings, Kernel, Modules, WMMessages, Commands, Files,
-	RadioStations, RadioGlobeAudio, WMRadioStations, WMGraphicUtilities, KernelLog;
+	RadioGlobeTexture, RadioStations, RadioGlobeAudio, WMRadioStations, WMGraphicUtilities, KernelLog;
 
 CONST
 	Width = 600; Height = 500;
 	CenterX = Width DIV 2; CenterY = 238;
 	MinRadius = 80; MaxRadius = 8192;
-	LutSize = 8192;
 	FrameMs = 25;
 	MinVelocity = 0.00000872664626; (* 0.0005 degrees/ms, as in libview/orbit.c *)
 
 VAR
-	asinLut, atanLut: ARRAY LutSize + 1 OF FLOAT64;
 	nofWindows, nofWatchers: SIGNED32;
-
-PROCEDURE FastArcSin(x: FLOAT64): FLOAT64;
-VAR index: SIGNED32;
-BEGIN
-	index := ENTIER((x + 1) * (LutSize DIV 2) + 0.5);
-	RETURN asinLut[MAX(0, MIN(LutSize, index))]
-END FastArcSin;
-
-PROCEDURE FastArcTan2(y, x: FLOAT64): FLOAT64;
-VAR ax, ay, angle: FLOAT64; index: SIGNED32;
-BEGIN
-	ax := ABS(x); ay := ABS(y);
-	IF ax >= ay THEN
-		IF ax = 0 THEN RETURN 0 END;
-		index := ENTIER(ay / ax * LutSize + 0.5);
-		angle := atanLut[MIN(LutSize, index)]
-	ELSE
-		index := ENTIER(ax / ay * LutSize + 0.5);
-		angle := Math64.pi / 2 - atanLut[MIN(LutSize, index)]
-	END;
-	IF x < 0 THEN
-		IF y < 0 THEN angle := angle - Math64.pi ELSE angle := Math64.pi - angle END
-	ELSIF y < 0 THEN angle := -angle
-	END;
-	RETURN angle
-END FastArcTan2;
-
-PROCEDURE InitTables;
-VAR i: SIGNED32;
-BEGIN
-	FOR i := 0 TO LutSize DO
-		asinLut[i] := Math64.arcsin(i / (LutSize DIV 2) - 1);
-		atanLut[i] := Math64.arctan(i / LutSize)
-	END
-END InitTables;
 
 TYPE
 	KillerMsg = OBJECT END KillerMsg;
@@ -224,9 +187,9 @@ TYPE
 		END New;
 
 		PROCEDURE Render(latitude, longitude: FLOAT64; radius, width, height, selected: SIZE; coarse: BOOLEAN);
-		VAR x, y, u, v, source, target, stride, cx, cy, right, bottom, xx, yy: SIZE;
-			b, g, r: CHAR;
-			sx, sy, sz, rr, cLat, sLat, cLon, sLon, px, py, pz, lat, lon, light: FLOAT64;
+		VAR x, y, target, stride, cx, cy, right, bottom, xx, yy: SIZE;
+			b, g, r: CHAR; blue, green, red: SIGNED32;
+			sx, sy, sz, rr, cLat, sLat, cLon, sLon, px, py, pz, lat, lon, light, u, v: FLOAT64;
 		BEGIN
 			IF (backImg.width # width) OR (backImg.height # height) THEN ReInit(width, height) END;
 			cx := width DIV 2; cy := height DIV 2 - 12;
@@ -256,17 +219,15 @@ TYPE
 						py := cLon * sx - sLat * sLon * sy + cLat * sLon * sz;
 						pz := cLat * sy + sLat * sz;
 						pz := MAX(-1.0, MIN(1.0, pz));
-						lat := FastArcSin(pz); lon := FastArcTan2(py, px);
-						u := ENTIER((lon / (2 * Math64.pi) + 0.5) * texture.width);
-						v := ENTIER((0.5 - lat / Math64.pi) * texture.height);
-						IF u < 0 THEN u := 0 ELSIF u >= texture.width THEN u := texture.width - 1 END;
-						IF v < 0 THEN v := 0 ELSIF v >= texture.height THEN v := texture.height - 1 END;
+						lat := RadioGlobeTexture.ArcSin(pz); lon := RadioGlobeTexture.ArcTan2(py, px);
+						u := (lon / (2 * Math64.pi) + 0.5) * texture.width - 0.5;
+						v := (0.5 - lat / Math64.pi) * texture.height - 0.5;
+						RadioGlobeTexture.Sample(texture, u, v, blue, green, red);
 						light := 0.30 + 0.70 * MAX(0.0, -0.35 * sx + 0.45 * sy + 0.82 * sz);
-						source := v * texture.bpr + u * 4;
 						target := y * backImg.bpr + x * 4;
-						b := CHR(ENTIER(ORD(texture.mem[source]) * light));
-						g := CHR(ENTIER(ORD(texture.mem[source + 1]) * light));
-						r := CHR(ENTIER(ORD(texture.mem[source + 2]) * light));
+						b := CHR(ENTIER(blue * light));
+						g := CHR(ENTIER(green * light));
+						r := CHR(ENTIER(red * light));
 						backImg.mem[target] := b; backImg.mem[target + 1] := g;
 						backImg.mem[target + 2] := r; backImg.mem[target + 3] := 0FFX;
 						IF coarse THEN
@@ -498,5 +459,5 @@ BEGIN
 END Open;
 
 BEGIN
-	InitTables; Modules.InstallTermHandler(Cleanup)
+	Modules.InstallTermHandler(Cleanup)
 END WMRadioGlobe.
