@@ -15,7 +15,7 @@ marker to play. **Stations** opens the searchable catalogue. Playback supports
 MP3, AAC/AAC+, Opus and native/Ogg FLAC, plus Ogg Vorbis.
 
 [**Watch the RadioGlobe demo**](https://github.com/Leimy/A2-Drawterm-MacOS/releases/download/radioglobe-demo-2026-11-13/radioglobe-demo.mp4)
-— 16 seconds, silent H.264 MP4, about 4 MB. The clip shows rotation, inertia,
+— 16 seconds, 60 fps capture, silent H.264 MP4, about 4 MB. The clip shows rotation, inertia,
 station markers and zoom, recorded from A2's drawterm/9P framebuffer.
 
 [![Watch RadioGlobe rotate and zoom](docs/images/radioglobe-demo.png)](https://github.com/Leimy/A2-Drawterm-MacOS/releases/download/radioglobe-demo-2026-11-13/radioglobe-demo.mp4)

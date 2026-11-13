@@ -200,7 +200,7 @@ def main():
     deadline = time.monotonic() + args.timeout
     try:
         while time.monotonic() < deadline:
-            for key, _ in selector.select(0.05):
+            for key, _ in selector.select(0.002 if radio_video is not None else 0.05):
                 if key.data == 'log':
                     data = os.read(process.stdout.fileno(), 65536)
                     if not data:
@@ -333,7 +333,9 @@ def main():
                 host.sendall(packet(117, mouse_tag, struct.pack('<I', len(event)) + event))
                 mouse_tag = None; tetris_index += 1; next_event = time.monotonic() + 0.4
                 if tetris_index == len(tetris_events): tetris_sent_at = time.monotonic()
-            if menu_app is not None and tetris_sent_at is not None and time.monotonic() - tetris_sent_at > (12 if menu_app == 'oberon' else 2):
+            # Once recording starts, avoid rehashing the entire screen on every
+            # draw packet: that work stalls A2's synchronous display traffic.
+            if menu_app is not None and tetris_sent_at is not None and not (radio_video is not None and radio_video.started is not None) and time.monotonic() - tetris_sent_at > (12 if menu_app == 'oberon' else 2):
                 if menu_app == 'tetris' and 'WMTetris opened' not in output:
                     raise RuntimeError('Demos > Tetris did not invoke WMTetris.Open')
                 if menu_app == 'oberon' and 'Oberon started' not in output:
