@@ -38,6 +38,19 @@ cd ~/A2-work
 /path/to/A2-Darwin-arm64-preview/a2
 ```
 
+Newer source builds search the working directory first, then the bundle,
+the bundle's `data` directory, and any inherited `AOSPATH` entries. Thus a
+module compiled in `~/A2-work` overrides the bundled copy. This search-order
+change is newer than the readiness preview archive.
+
+Compiling does not replace an already loaded module. Close its application
+windows and stop its activities, then use `System.Free MyModule` in BlueShell
+before running `MyModule.Run` again. Unload dependent modules first if A2
+reports that the module is still imported. Remove or rename the local `.GofAa`
+and `.SymAa` pair to use the bundled version again after unloading or restarting.
+Modules linked into the core image still require rebuilding that image; local
+object-file precedence applies to dynamically loaded modules.
+
 ### Larger PET text (newer source builds)
 
 PET on AArch64 starts with **20-pixel editor text**, independently of desktop

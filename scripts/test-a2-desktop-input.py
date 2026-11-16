@@ -114,8 +114,10 @@ def main():
     host, guest = socket.socketpair()
     env = os.environ.copy()
     core_dir = Path(args.core).resolve().parent
+    working_directory = str((args.cwd or Path.cwd()).resolve())
     env.update(OBERON_CORE=str(Path(args.core).resolve()), A2_DRAWTERM_FD=str(guest.fileno()),
-               AOSPATH=os.pathsep.join([str(core_dir), str((args.cwd or Path.cwd()).resolve()), str(core_dir / 'data')]))
+               PWD=working_directory,
+               AOSPATH=os.pathsep.join(filter(None, [working_directory, str(core_dir), str(core_dir / 'data'), env.get('AOSPATH', '')])))
     process = subprocess.Popen([str(Path(args.loader).resolve())], env=env, cwd=args.cwd,
                                pass_fds=(guest.fileno(),),
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

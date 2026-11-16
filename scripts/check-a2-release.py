@@ -120,6 +120,7 @@ def main():
                for name in ('network', 'crypto', 'browser')]
     checks += [('radio', [sys.executable, str(ROOT / 'scripts/test-a2-radio.py'), str(bundle), '--playback', '--stations'], 150),
                ('native-platform', [sys.executable, str(ROOT / 'scripts/test-a2-native-platform.py'), '--compiler', str(compiler), '--bundle', str(bundle)], 90),
+               ('module-search', [sys.executable, str(ROOT / 'scripts/test-a2-module-search.py'), '--launcher', str(bundle / 'a2'), '--compiler', str(compiler)], 90),
                ('desktop-resize', [*base, '--resize', '--open-notepad', '--type-text', 'release resize test', '--timeout', '45'], 55),
                ('desktop-zoom', [*base, '--zoom', '--timeout', '35'], 45),
                ('desktop-clipboard', [*base, '--shell-command', 'NativeDesktopHello.Copy', '--expect-clipboard', 'copied from native A2', '--timeout', '40'], 50),

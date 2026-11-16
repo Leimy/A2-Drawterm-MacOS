@@ -84,7 +84,7 @@ int main(int argc, char **argv) {
     search_path = malloc(strlen(directory) + strlen(data) + strlen(working_directory) +
                          (old_path ? strlen(old_path) : 0) + 5);
     if (search_path == NULL) return 2;
-    sprintf(search_path, "%s:%s:%s%s%s", directory, working_directory, data,
+    sprintf(search_path, "%s:%s:%s%s%s", working_directory, directory, data,
             old_path && *old_path ? ":" : "", old_path ? old_path : "");
     signal(SIGINT, stop);
     signal(SIGTERM, stop);
@@ -120,6 +120,7 @@ int main(int argc, char **argv) {
         setenv("OBERON_CORE", core, 1);
         setenv("A2_DRAWTERM_FD", descriptor, 1);
         setenv("AOSPATH", search_path, 1);
+        setenv("PWD", working_directory, 1);
         execl(loader, loader, (char *)NULL);
         perror("exec OberonLoader");
         _exit(127);
