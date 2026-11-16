@@ -281,6 +281,13 @@ TYPE
 						END;
 					END;
 				END;
+				#IF AARCH64 THEN
+					(* The generic .MOD entry in Configuration.XML uses -w. Keep
+					   the native profile instead of discarding it on file load. *)
+					IF (settings.name = "Fox") & (settings.fileExtension = "MOD") & (settings.options = "-w") THEN
+						COPY(DefaultCompilerOptions, settings.options)
+					END;
+				#END
 			END ParseCompilerSettings;
 
 		BEGIN

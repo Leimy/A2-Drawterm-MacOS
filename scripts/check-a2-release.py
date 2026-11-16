@@ -119,10 +119,13 @@ def main():
     checks += [(name, ['sh', str(ROOT / 'scripts' / f'test-a2-{name}.sh'), str(bundle)], 90)
                for name in ('network', 'crypto', 'browser')]
     checks += [('radio', [sys.executable, str(ROOT / 'scripts/test-a2-radio.py'), str(bundle), '--playback', '--stations'], 150),
+               ('native-platform', [sys.executable, str(ROOT / 'scripts/test-a2-native-platform.py'), '--compiler', str(compiler), '--bundle', str(bundle)], 90),
                ('desktop-resize', [*base, '--resize', '--open-notepad', '--type-text', 'release resize test', '--timeout', '45'], 55),
                ('desktop-zoom', [*base, '--zoom', '--timeout', '35'], 45),
                ('desktop-clipboard', [*base, '--shell-command', 'NativeDesktopHello.Copy', '--expect-clipboard', 'copied from native A2', '--timeout', '40'], 50),
                ('desktop-compile', [*base, '--shell-command', 'Compiler.Compile -p=DarwinA2 NativeDesktopHello.Mod', '--expect-file', 'NativeDesktopHello.GofAa', '--timeout', '40'], 50),
+               ('pet-gui-inheritance', [*base, '--shell-command', 'PET.Open NativeGUIInheritance.Mod', '--pet-compile', '--expect-file', 'NativeGUIInheritance.GofAa', '--command-settle', '4', '--timeout', '40'], 50),
+               ('desktop-gui-type-test', [*base, '--shell-command', 'NativeGUIInheritance.Run', '--expect-log', 'GUI inheritance type metadata passed', '--timeout', '40'], 50),
                ('desktop-shutdown', [*base, '--tetris-shutdown', '--timeout', '45'], 55),
                ('globe-geometry', [*base, '--menu-app', 'radio-globe', '--radio-globe-regression', '--timeout', '120'], 135)]
     menus = menu_choices() if args.all_menus else ['pet', 'gui-builder', 'oberon', 'files', 'performance', 'image-viewer']
@@ -137,6 +140,8 @@ def main():
         if command[:len(base)] == base:
             work = report_dir / 'work' / name
             work.mkdir(parents=True, exist_ok=True)
+            if name == 'pet-gui-inheritance':
+                (work / 'NativeGUIInheritance.Mod').write_text((ROOT / 'tests/NativeGUIInheritance.Mod').read_text())
             command = [*command, '--cwd', str(work)]
             if '--expect-file' in command:
                 pos = command.index('--expect-file') + 1
@@ -150,19 +155,23 @@ def main():
             with log.open('w') as out:
                 try:
                     prepared = True
-                    if name == 'desktop-clipboard':
+                    if name in ('desktop-clipboard', 'desktop-gui-type-test'):
                         prepare_env = dict(env, AOSCONFIG='Color 0 StackSize 8192',
                             OBERON_CORE=str(compiler / 'DarwinAosCompilerAa'),
                             AOSPATH=f'{work}:{bundle}:{compiler}:{bundle / "data"}')
-                        prepare = subprocess.run([str(compiler / 'OberonLoader'), 'compile', '-p=DarwinA2',
-                            'NativeDesktopHello.Mod'], cwd=work, env=prepare_env, stdout=out,
+                        module = 'NativeDesktopHello' if name == 'desktop-clipboard' else 'NativeGUIInheritance'
+                        if name == 'desktop-gui-type-test':
+                            (work / 'NativeGUIInheritance.Mod').write_text((ROOT / 'tests/NativeGUIInheritance.Mod').read_text())
+                        profile = '-p=DarwinA2' if name == 'desktop-clipboard' else '-w'
+                        prepare = subprocess.run([str(compiler / 'OberonLoader'), 'compile', profile,
+                            module + '.Mod'], cwd=work, env=prepare_env, stdout=out,
                             stderr=subprocess.STDOUT, timeout=30)
-                        prepared = prepare.returncode == 0 and (work / 'NativeDesktopHello.GofAa').exists()
+                        prepared = prepare.returncode == 0 and (work / (module + '.GofAa')).exists()
                     if prepared:
                         run = subprocess.run(command, cwd=ROOT, env=env, stdout=out, stderr=subprocess.STDOUT, timeout=timeout)
                         code = run.returncode
                     else:
-                        out.write('Clipboard fixture did not compile\n'); code = 1
+                        out.write('Desktop fixture did not compile\n'); code = 1
                 except subprocess.TimeoutExpired:
                     out.write('\nRELEASE CHECK TIMEOUT\n'); code = None
             # The runtime sometimes reports traps without a nonzero process status.

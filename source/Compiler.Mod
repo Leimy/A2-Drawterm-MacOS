@@ -5,7 +5,11 @@ IMPORT
 	Basic := FoxBasic, Scanner := FoxScanner, Parser := FoxParser,
 	SemanticChecker := FoxSemanticChecker, SyntaxTree := FoxSyntaxTree, Formats := FoxFormats,
 	Streams, Commands,Diagnostics, Options, Kernel, Printout := FoxPrintout, Backend := FoxBackend,Strings, Global := FoxGlobal,
-	Frontend := FoxFrontend, Files, Machine;
+	Frontend := FoxFrontend, Files, Machine
+	#IF UNIX & AARCH64 THEN
+	, Unix
+	#END
+	;
 
 CONST
 	(* flags *)
@@ -589,6 +593,13 @@ TYPE
 		IF extension = "" THEN
 			COPY(Machine.DefaultObjectFileExtension, extension)
 		END;
+		#IF UNIX & AARCH64 THEN
+			(* UnixAArch64 and DarwinA2 share .GofAa. Extension lookup alone
+			   cannot select the hosted Darwin ABI and full type metadata. *)
+			IF (Unix.Version = "Darwin") & (extension = ".GofAa") THEN
+				COPY("DarwinA2", defaultPlatform); RETURN
+			END;
+		#END
 		(* infer platform from default object file extension *)
 		platforms.Find("objectFileExtension", extension, defaultPlatform);
 	END SetupDefaults;

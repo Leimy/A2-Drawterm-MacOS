@@ -54,6 +54,18 @@ the desktop keeps its existing control sizes.
 This change is newer than the `preview-2026-11-13-readiness` archive. Rebuild
 from current source to get it; that existing download is unchanged.
 
+### PET compiler options
+
+For native desktop modules, PET's compiler-options field should include
+`-p=DarwinA2 --warnings`. Newer source builds retain this setting when loading a
+`.Mod` file and make the compiler's implicit Darwin target deterministic.
+
+In older builds, the file-specific configuration can replace that option with
+`-w`, causing the compiler to select simple metadata and report **maximal
+extension level exceeded** for a valid inherited GUI class. Replace `-w` in
+the options field with `-p=DarwinA2 -w` and compile again. This does not require
+editing or reloading the source buffer.
+
 Open **Desktop > BlueShell**, then compile and run the bundled example. Enter
 each line separately:
 
