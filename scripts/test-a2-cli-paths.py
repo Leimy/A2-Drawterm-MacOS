@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory(prefix='a2 cli path ') as temporary:
     work = Path(temporary)
     loader = work / 'OberonLoader'
     shutil.copy2(compiler / 'OberonLoader', loader)
-    env = dict(os.environ, OBERON_CORE=str(compiler / 'DarwinAosCompilerAa'),
+    env = dict(os.environ, PWD=str(work), OBERON_CORE=str(compiler / 'DarwinAosCompilerAa'),
                AOSPATH=f'{work}:{compiler}:{repo / "source"}')
     for command in (['compile', '-p=DarwinA2', 'NativeBuildHello.Mod'], ['do', 'NativeBuildHello.Run']):
         result = subprocess.run([str(loader), *command], cwd=work, env=env,

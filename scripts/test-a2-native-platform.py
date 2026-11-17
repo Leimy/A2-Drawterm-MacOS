@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix='a2-native-platform-') as temporary:
     for name, options, expected in cases:
         work = root / name
         work.mkdir()
-        env = dict(os.environ, AOSCONFIG='Color 0 StackSize 8192',
+        env = dict(os.environ, PWD=str(work), AOSCONFIG='Color 0 StackSize 8192',
                    OBERON_CORE=str(compiler / 'DarwinAosCompilerAa'),
                    AOSPATH=f'{work}:{bundle}:{compiler}:{repo / "tests"}')
         result = subprocess.run([str(compiler / 'OberonLoader'), 'compile', *options,

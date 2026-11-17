@@ -57,7 +57,7 @@ END NativeFilenameMatch.
 with tempfile.TemporaryDirectory(prefix='a2-match-') as temporary:
     work = Path(temporary)
     (work / 'NativeFilenameMatch.Mod').write_text(module)
-    env = dict(os.environ, AOSCONFIG='Color 0 StackSize 128',
+    env = dict(os.environ, PWD=str(work), AOSCONFIG='Color 0 StackSize 128',
                AOSPATH=f'{work}:{compiler}', OBERON_CORE=str(compiler / 'DarwinAosCompilerAa'))
     for command in (['compile', '-p=DarwinA2', 'NativeFilenameMatch.Mod'], ['do', 'NativeFilenameMatch.Run']):
         result = subprocess.run([str(compiler / 'OberonLoader'), *command], cwd=work,

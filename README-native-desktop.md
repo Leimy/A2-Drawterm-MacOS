@@ -51,6 +51,32 @@ and `.SymAa` pair to use the bundled version again after unloading or restarting
 Modules linked into the core image still require rebuilding that image; local
 object-file precedence applies to dynamically loaded modules.
 
+### Keeping the checkout tidy
+
+Keep source, assets, build recipes and tests in Git. Keep personal programs
+and settings in a working directory such as `~/A2-work`. Preserve PET backups
+as user data, including backups created alongside repository source files.
+Generated objects, captures and logs belong under `build/` or a temporary test
+directory, rather than the repository root. Child processes must use a matching
+working directory and `PWD` so A2 scratch files are created there too.
+
+Retain one current desktop, one known-good fallback, the compiler seed needed
+to rebuild, and published release archives/checksums with useful validation
+evidence. Keep additional outputs only while a script or running process uses
+them. Use `build/native-current`, `build/native-previous` and
+`build/native-toolchain` as stable local aliases instead of accumulating a
+permanent directory for every experiment. Validate a new build before updating
+the aliases, and keep the old running build until it exits.
+These aliases are local symlinks, not committed build products. If they are not
+configured on your machine, use the actual build directory in the examples below.
+
+Move superseded snapshots to Trash first. Remove closed orphan `.tmp.*` and
+old `AOS.*.Log` files after checking that no A2 process uses them; retain useful
+failure diagnostics. Age alone is not a reason to delete source or `.Bak`
+files. Avoid blanket `git clean -fdx`: ignored directories include bootstrap
+seeds, and untracked files can contain personal work. Cleanup manifests are
+kept under `build/native-diagnostics/` for recovery.
+
 ### Larger PET text (newer source builds)
 
 PET on AArch64 starts with **20-pixel editor text**, independently of desktop
@@ -120,7 +146,7 @@ pages. It does not support HTTPS or modern browser features. To open a URL from
 BlueShell, run `WebBrowser.OpenURL http://127.0.0.1:8080/`, substituting your
 HTTP address and port. The native build includes its HTML, CSS, SVG, and HTTP
 dependencies.
-From a source checkout, `scripts/test-a2-browser.sh build/native-browser-2026`
+From a source checkout, `scripts/test-a2-browser.sh build/native-current`
 checks a local HTTP exchange through the browser and its drawterm desktop.
 
 **Customize** includes the GUI builder, skin chooser, and a command to add a
@@ -212,7 +238,7 @@ rate should not be interpreted as an application performance measurement.
 To record another clip from a source build on macOS:
 
 ```sh
-sh scripts/record-a2-radioglobe.sh build/native-stations-2026 /tmp/my-radioglobe-demo.mp4
+sh scripts/record-a2-radioglobe.sh build/native-current /tmp/my-radioglobe-demo.mp4
 ```
 
 The development recording tool writes a `.timing.json` sidecar with capture and
@@ -314,7 +340,7 @@ session are not automatically persisted.
 
 The Apple Silicon build also includes A2's Unix socket-backed IP, TCP, UDP,
 and DNS modules. From a source checkout, run
-`scripts/test-a2-network.sh build/native-customize-2026` to check byte order,
+`scripts/test-a2-network.sh build/native-current` to check byte order,
 `localhost` lookup, local TCP/UDP traffic, and a TCP exchange with macOS
 `nc` without contacting an external server. These modules are
 available for native A2 programs; network applications still need their own
@@ -323,7 +349,7 @@ runtime checks before being added to the menu.
 The bundle also includes A2's cryptography modules and test commands. For
 example, `CryptoTools.Hash CryptoSHA256 filename` prints a file's SHA-256 hash
 in BlueShell. From a source checkout, run
-`scripts/test-a2-crypto.sh build/native-desktop` to check SHA-256, SHA-3,
+`scripts/test-a2-crypto.sh build/native-current` to check SHA-256, SHA-3,
 MD5, and an AES-128 known-answer vector in the native runtime.
 
 To edit and compile the example in PET, copy it into your launch

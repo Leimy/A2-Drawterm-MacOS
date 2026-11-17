@@ -14,7 +14,7 @@ with tempfile.TemporaryDirectory(prefix='a2-audio-') as directory:
     commands.write_text('RadioGlobeAudio.PlayMP3 RadioGlobeTest.mp3 ~\n'
                         'System.Free RadioGlobeAudio DarwinSound ~\n'
                         'RadioGlobeAudio.PlayMP3 RadioGlobeTest.mp3 ~\n')
-    env = dict(os.environ, AOSCONFIG='Color 0 StackSize 8192',
+    env = dict(os.environ, PWD=directory, AOSCONFIG='Color 0 StackSize 8192',
                AOSPATH=f'{directory}:{bundle}:{compiler}:{bundle / "data"}:{repo / "tests"}',
                OBERON_CORE=str(compiler / 'DarwinAosCompilerAa'))
     compile_result = subprocess.run([str(compiler / 'OberonLoader'), 'compile', '-b=AArch64',

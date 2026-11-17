@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory(prefix='a2-stations-') as temporary:
                        '91 0 "Invalid latitude" http://example.invalid/x\n'
                        'nan 0 "Invalid number" http://example.invalid/x\n'
                        '0 0 "Invalid scheme" file:///nonexistent\n')
-    env = dict(os.environ, AOSCONFIG='Color 0 StackSize 8192',
+    env = dict(os.environ, PWD=str(directory), AOSCONFIG='Color 0 StackSize 8192',
                AOSPATH=f'{directory}:{bundle}:{compiler}:{bundle / "data"}:{repo / "tests"}',
                OBERON_CORE=str(compiler / 'DarwinAosCompilerAa'))
     result = subprocess.run([str(compiler / 'OberonLoader'), 'compile', '-b=AArch64',

@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix='a2-mp3-') as temporary:
     # 128 kbit/s, 44.1 kHz stereo, no CRC or padding. Zero side information
     # declares no spectral coefficients; the expected decoded PCM is silence.
     source.write_bytes((bytes.fromhex('fffb9000') + bytes(413)) * 12)
-    env = dict(os.environ, AOSCONFIG='Color 0 StackSize 8192',
+    env = dict(os.environ, PWD=str(directory), AOSCONFIG='Color 0 StackSize 8192',
                AOSPATH=f'{bundle}:{compiler}:{bundle / "data"}',
                OBERON_CORE=str(compiler / 'DarwinAosCompilerAa'))
     result = subprocess.run([str(compiler / 'OberonLoader'), 'do',

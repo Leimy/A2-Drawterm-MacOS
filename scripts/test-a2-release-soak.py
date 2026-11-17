@@ -16,7 +16,7 @@ compiler = a.compiler.resolve()
 assert 1 <= a.seconds <= 3600 and 1 <= a.cycles <= 10000
 with tempfile.TemporaryDirectory(prefix='a2-release-soak-') as temporary:
     work = Path(temporary)
-    env = dict(os.environ, AOSCONFIG='Color 0 StackSize 8192',
+    env = dict(os.environ, PWD=str(work), AOSCONFIG='Color 0 StackSize 8192',
                AOSPATH=f'{work}:{compiler}:{repo / "tests"}', OBERON_CORE=str(compiler / 'DarwinAosCompilerAa'))
     def run(*args, timeout=30):
         p = subprocess.run([str(compiler / 'OberonLoader'), *args], cwd=work, env=env,

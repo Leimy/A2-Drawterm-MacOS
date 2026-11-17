@@ -1,6 +1,9 @@
 /build/native-compiler/
 /build/native-desktop/
 /build/native-*/
+/build/native-current
+/build/native-previous
+/build/native-toolchain
 /AOS.*.Log
 /.tmp.*
 /scripts/__pycache__/

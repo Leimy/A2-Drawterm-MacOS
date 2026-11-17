@@ -157,7 +157,7 @@ def main():
                 try:
                     prepared = True
                     if name in ('desktop-clipboard', 'desktop-gui-type-test'):
-                        prepare_env = dict(env, AOSCONFIG='Color 0 StackSize 8192',
+                        prepare_env = dict(env, PWD=str(work), AOSCONFIG='Color 0 StackSize 8192',
                             OBERON_CORE=str(compiler / 'DarwinAosCompilerAa'),
                             AOSPATH=f'{work}:{bundle}:{compiler}:{bundle / "data"}')
                         module = 'NativeDesktopHello' if name == 'desktop-clipboard' else 'NativeGUIInheritance'

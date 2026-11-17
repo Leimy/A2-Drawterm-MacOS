@@ -143,7 +143,7 @@ thread = threading.Thread(target=server.serve_forever, daemon=True)
 thread.start()
 try:
     with tempfile.TemporaryDirectory(prefix='a2-radio-') as temporary:
-        env = dict(os.environ, AOSCONFIG='Color 0 StackSize 8192',
+        env = dict(os.environ, PWD=temporary, AOSCONFIG='Color 0 StackSize 8192',
                    AOSPATH=f'{temporary}:{bundle}:{compiler}:{bundle / "data"}:{repo / "tests"}',
                    OBERON_CORE=str(compiler / 'DarwinAosCompilerAa'))
         def run(*arguments):

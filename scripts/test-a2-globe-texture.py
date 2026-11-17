@@ -11,7 +11,7 @@ bundle = Path(sys.argv[1]).resolve()
 compiler = Path(os.environ.get('A2_COMPILER_LIBRARY', repo / 'build/native-compiler')).resolve()
 with tempfile.TemporaryDirectory(prefix='a2-globe-texture-') as temporary:
     directory = Path(temporary)
-    env = dict(os.environ, AOSCONFIG='Color 0 StackSize 8192',
+    env = dict(os.environ, PWD=str(directory), AOSCONFIG='Color 0 StackSize 8192',
                AOSPATH=f'{directory}:{bundle}:{compiler}:{bundle / "data"}:{repo / "tests"}',
                OBERON_CORE=str(compiler / 'DarwinAosCompilerAa'))
     result = subprocess.run([str(compiler / 'OberonLoader'), 'compile', '-b=AArch64',
