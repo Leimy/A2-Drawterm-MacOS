@@ -3,7 +3,7 @@ MODULE WindowManager;	(** AUTHOR "TF"; PURPOSE "Window manager implementation"; 
 IMPORT
 	KernelLog, Kernel, Strings, Plugins, Inputs, Modules, Displays, Graphics := WMGraphics,
 	Messages := WMMessages, DW := WMDefaultWindows,
-	WM := WMWindowManager, Rect := WMRectangles, Raster,  WMFontManager (*Load*), Commands, Options;
+	WM := WMWindowManager, Rect := WMRectangles, Raster,  WMFontManager (*Load*), Commands, Options, WMPieMenu;
 
 CONST
 	DirtyBufSize = 128;
@@ -86,7 +86,10 @@ TYPE
 			msg.y := keysym;
 			msg.flags := flags;
 			done := FALSE;
-			IF meta THEN
+			IF (flags * Inputs.Ctrl # {}) & (flags * Inputs.Shift # {}) & ((keysym = ORD("0")) OR (keysym = ORD(")"))) THEN
+				IF ~(Inputs.Release IN flags) THEN SetRange(0, 0, display.width, display.height, FALSE) END;
+				done := TRUE
+			ELSIF meta & ~(Inputs.Release IN flags) THEN
 				IF keysym = 0FF50H THEN (* Home key *)
 					manager.GetPopulatedArea(r);
 					SetRange(r.l, r.t, r.r - r.l, r.b - r.t, TRUE);
@@ -129,8 +132,6 @@ TYPE
 				IF (w # NIL) & (w # manager(WindowManager).bottom) THEN
 					IF ((0 IN lastKeys) # (0 IN keys)) & (0 IN keys) THEN
 						ZoomToWindow(w); ignore := TRUE
-					ELSIF ((2 IN lastKeys) # (2 IN keys)) & (2 IN keys) THEN
-						SetInitialWindowBounds(w);  ignore := TRUE
 					END;
 				END;
 				IF (dz # 0) THEN
@@ -206,17 +207,6 @@ TYPE
 				SetRange(r.l, r.t, r.r - r.l, r.b - r.t, TRUE)
 			END
 		END ZoomToWindow;
-
-		PROCEDURE SetInitialWindowBounds(w : Window);
-		VAR width, height : SIZE;
-		BEGIN
-			ASSERT(manager.lock.HasWriteLock());
-			IF w.master # NIL THEN w := w.master END;
-			width := w.initialBounds.r - w.initialBounds.l;
-			height := w.initialBounds.b - w.initialBounds.t;
-			(* set original bounds of the window *)
-			manager.SetWindowSize(w, width, height);
-		END SetInitialWindowBounds;
 
 		(** Set the observed range. *)
 		PROCEDURE SetRange*(x, y, w, h : FLOAT32; showTransition : BOOLEAN);
@@ -426,6 +416,55 @@ TYPE
 			RETURN FALSE
 		END IsHit;
 	END UnhitableWindow;
+
+	DesktopMenu = OBJECT
+	VAR menu: WMPieMenu.Menu; view: ViewPort; target: Window;
+
+		PROCEDURE Reset(sender, data: ANY);
+		BEGIN
+			menu.Close;
+			view.manager.lock.AcquireWrite;
+			view.SetRange(0, 0, view.width0, view.height0, FALSE);
+			view.manager.lock.ReleaseWrite
+		END Reset;
+
+		PROCEDURE Fit(sender, data: ANY);
+		VAR r: Rectangle;
+		BEGIN
+			menu.Close;
+			view.manager.lock.AcquireWrite;
+			view.manager.GetPopulatedArea(r);
+			view.SetRange(r.l, r.t, r.r-r.l, r.b-r.t, FALSE);
+			view.manager.lock.ReleaseWrite
+		END Fit;
+
+		PROCEDURE Maximize(sender, data: ANY);
+		VAR msg: Messages.Message;
+		BEGIN
+			menu.Close;
+			IF target # NIL THEN
+				msg.msgType := Messages.MsgMaximize;
+				IF target.windowState = WindowState.Maximized THEN msg.msgType := Messages.MsgRestore END;
+				msg.msgSubType := 0; msg.ext := target;
+				view.manager.Handle(msg);
+				view.manager.SetFocus(target)
+			END
+		END Maximize;
+
+		PROCEDURE &New(view: ViewPort; target: Window; x, y: SIZE);
+		BEGIN
+			SELF.view := view; SELF.target := target;
+			IF (target # NIL) & (target.master # NIL) THEN SELF.target := target.master END;
+			NEW(menu); menu.SetEnabled({0..3});
+			menu.SetText(0, Strings.NewString("Reset zoom")); menu.on0.Add(Reset);
+			menu.SetText(1, Strings.NewString("Maximize")); menu.on1.Add(Maximize);
+			menu.SetText(2, Strings.NewString("Fit all")); menu.on2.Add(Fit);
+			menu.SetText(3, Strings.NewString("Cancel"));
+			IF target = NIL THEN menu.SetEnabled({0,2,3})
+			ELSIF SELF.target.windowState = WindowState.Maximized THEN menu.SetText(1, Strings.NewString("Restore")) END;
+			menu.Show(target, x, y, FALSE)
+		END New;
+	END DesktopMenu;
 
 	WindowManager* = OBJECT (WM.WindowManager)
 	VAR
@@ -1062,6 +1101,7 @@ TYPE
 		PROCEDURE PointerEvent(VAR msg : Messages.Message);
 		VAR
 			newOwner : Window;
+			desktopMenu: DesktopMenu;
 			view : ViewPort;
 			kd, i : SIGNED32;
 			m : Messages.Message;
@@ -1139,6 +1179,14 @@ TYPE
 				END;
 				pointerX := msg.x; pointerY := msg.y; CheckPointerImage;
 				IF dragging THEN RETURN END
+			END;
+
+			(* Capture the application focus before the desktop pie takes it. *)
+			IF (view # NIL) & (keys = {2}) & (pointerKeys = {}) &
+				(GetPositionOwnerIntern(msg.x, msg.y, view) = bottom) THEN
+				pointerKeys := keys; kdprev := 1;
+				NEW(desktopMenu, view, focusOwner, msg.x, msg.y);
+				RETURN
 			END;
 
 			(* if no keys are pressed, the new pointer owner is the position owner *)
@@ -1689,6 +1737,18 @@ VAR
 	defaultMouse : MouseObj;
 	CharToUnicode: ARRAY 256 OF SIGNED32; (** mapping from Oberon character codes to Unicodes **)
 
+
+(** Restore the desktop to its original origin and one display pixel per desktop pixel. *)
+PROCEDURE ResetZoom*(context: Commands.Context);
+VAR v: WM.ViewPort;
+BEGIN
+	v := WM.GetDefaultView();
+	IF v IS ViewPort THEN
+		v.manager.lock.AcquireWrite;
+		v(ViewPort).SetRange(0, 0, v.width0, v.height0, FALSE);
+		v.manager.lock.ReleaseWrite
+	END
+END ResetZoom;
 
 PROCEDURE Bound(VAR x:SIZE; min, max:SIZE);
 BEGIN

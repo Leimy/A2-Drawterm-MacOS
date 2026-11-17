@@ -3985,11 +3985,10 @@ TYPE
 				piemenu.on3.Add(PieMenuStart);
 				piemenu.on0.Add(PieMenuPaste);
 
+				Acquire; ToWMCoordinates(x, y, x, y); Release;
 				manager := WMWindowManager.GetDefaultManager();
 				window := manager.GetPositionOwner(x, y);
 				IF window = NIL THEN RETURN END;
-
-				Acquire; ToWMCoordinates(x, y, x, y); Release;
 				piemenu.Show(window, x, y, FALSE);
 				(* TODO: Can't set  := NIL, since its used by the button handlers *)
 			ELSE

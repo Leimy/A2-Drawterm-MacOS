@@ -128,6 +128,29 @@ into the launch directory; that directory takes priority over bundled data.
 After recompiling a loaded module, run `System.Free NativeDesktopHello` before
 running its new version.
 
+Desktop controls in the current source build:
+
+- **System → Reset desktop zoom**, or **Ctrl+Shift+0**, restores the original
+  desktop origin and 1:1 scale. `WindowManager.ResetZoom` does the same from BlueShell.
+- Hold the **right mouse button on the desktop background**, drag toward a
+  sector, then release: **Reset zoom**, **Fit all**, **Maximize/Restore**, or
+  **Cancel**. Maximize/Restore acts on the application focused before opening
+  the pie. It fills the drawterm viewport; macOS fullscreen remains drawterm's own control.
+- Window title bars expose the existing minimize and maximize/restore buttons
+  beside Close. Maximize preserves the previous position and size for Restore.
+- In a text area, the right-button pie remains **Open / Copy / Paste / Start**.
+  Hold right, move toward the action, then release. A plain right-click no longer
+  changes window dimensions, including when drawterm uses Command to emulate it.
+
+The old Meta+right-click window-size reset has been removed because it conflicts
+with drawterm's mouse emulation. Meta+End still returns to 1:1 around the current
+view center; Ctrl+Shift+0 also resets the origin.
+
+Run `scripts/test-a2-window-controls.sh build/native-current` from the checkout
+to exercise the actual input dispatch, title-bar buttons, desktop pie, and zoom
+reset in an isolated desktop session.
+
+
 The native menu also includes **Development > PET editor**, **Hex editor**,
 **Key codes**, and **Interpreter shell**, plus **Tools > Color picker** and
 **Text styles**. **Graphics** offers an image viewer, graph demos, a Gfx
