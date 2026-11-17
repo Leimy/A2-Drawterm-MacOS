@@ -1,1 +1,2 @@
 Compiler.Compile -b=AArch64 --mergeSections --metaData=full --objectFileExtension=.GofAa --symbolFileExtension=.SymAa --define=UNIX,AARCH64,DESKTOP Math32.Mod Math64.Mod ComplexNumbers.Mod FoxArrayBase.Mod ~
+Compiler.Compile -b=AArch64 --mergeSections --metaData=full --objectFileExtension=.GofAa --symbolFileExtension=.SymAa --define=UNIX,AARCH64,DESKTOP CSP.Mod CSPChannels.Mod CSPDemo.Mod ~

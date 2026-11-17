@@ -414,6 +414,141 @@ test -s NativeDesktopHello.GofAa
 
 The last command should print `native A2 desktop compiler demo ran`.
 
+### CSP communication for active objects
+
+The current source build includes `source/CSP.Mod`, a shared coordinator using
+ordinary Active Oberon `EXCLUSIVE` regions and `AWAIT`. The typed interface is
+`source/CSPChannels.Mod`, using Fox's existing parameterized modules:
+
+```oberon
+IMPORT CSP,
+    Numbers := CSPChannels(SIGNED64),
+    Requests := CSPChannels(Request);
+```
+
+Each instance supplies `Channel` and `Offer` types: `Numbers.Channel.Send`
+accepts an integer, while `Requests.Channel.Send` accepts a `Request`. Receive
+variables and offer results are checked against the same type. Records, fixed
+arrays, and object references are supported. Records and arrays are copied when
+a send or send offer is created; embedded object references remain shared.
+All instances use the same CSP coordinator, so choices can span payload types.
+No language or runtime changes are needed. The earlier `CSP.IntegerChannel`
+and `CSP.ObjectChannel` interfaces remain available for compatibility.
+
+`NEW(channel, 0)` creates an unbuffered rendezvous: a successful send waits for
+an actual receiver. A positive capacity creates a bounded FIFO; a successful
+buffered send means the value was accepted into the buffer. Neither operation
+waits for the receiver to finish processing the value. Use a reply channel if
+completion needs acknowledgement.
+
+From BlueShell, run the concurrent sieve:
+
+```text
+CSPDemo.Run 50
+```
+
+It prints the primes through 50 in the invoking shell (BlueShell or Terminal),
+propagates channel closure down the pipeline,
+and joins every filter activity before returning. Its source is
+`source/CSPDemo.Mod`; it now imports `Numbers := CSPChannels(SIGNED64)`.
+The coordinator, generic template, and demo are compiled by both the desktop
+recipe and the native compiler extras recipe. Fox includes the specialization's
+code in the importing module's object file; there is no standalone template
+object file to load.
+
+To update an existing session that loaded the earlier, nongeneric demo, run
+these commands separately in BlueShell (adjust the checkout path if needed):
+
+```text
+System.Free CSPDemo
+System.Free CSP
+Compiler.Compile -p=DarwinA2 /Users/dave/srcs/oberon/source/CSP.Mod /Users/dave/srcs/oberon/source/CSPChannels.Mod /Users/dave/srcs/oberon/source/CSPDemo.Mod
+CSPDemo.Run 50
+```
+
+This writes compiled modules to the working directory. Keep the template's
+`CSPChannels.SymAa` with the bundle so other payload types can be compiled.
+As with other A2 modules, updates require unloading importing modules before
+their dependencies.
+
+The same demo runs without graphics. From the checkout:
+
+```sh
+repo=$(pwd)
+bundle="$repo/build/native-current"
+toolchain="$repo/build/native-toolchain"
+mkdir -p ~/A2-cli-work
+cd ~/A2-cli-work
+export OBERON_CORE="$toolchain/DarwinAosCompilerAa"
+export AOSPATH="$PWD:$bundle:$toolchain:$repo/data"
+export AOSCONFIG='Color 0 StackSize 8192'
+"$bundle/OberonLoader" do 'CSPDemo.Run 50'
+```
+
+Channel operations return `CSP.Success`, `Closed`, `Cancelled`, or `WouldBlock`
+(the last for nonblocking calls). A failed receive preserves its output variable.
+Pass `NIL` for no cancellation, or `NEW(cancel)` to create a one-shot
+`CSP.Cancellation`. Calling `cancel.Cancel` wakes affected communications; it
+neither terminates active objects nor undoes a communication already committed.
+`channel.Close()` returns true only on the first close. Pending sends fail;
+receives drain accepted buffered values before returning `Closed`.
+
+For atomic external choice, construct fresh offers from the channels and call
+`CSP.Select`, or `CSP.TrySelect` for a default/nonblocking alternative. For example,
+this helper can be called from an active object supplied with two integer channels:
+
+```oberon
+IMPORT CSP, Numbers := CSPChannels(SIGNED64);
+
+PROCEDURE ReceiveEither(a, b: Numbers.Channel; cancel: CSP.Cancellation;
+    VAR source: SIZE; VAR value: SIGNED64): SIGNED32;
+VAR left, right: Numbers.Offer; offers: ARRAY 2 OF CSP.Offer; result: SIGNED32;
+BEGIN
+    left := a.ReceiveOffer(); right := b.ReceiveOffer();
+    offers[0] := left; offers[1] := right;
+    result := CSP.Select(offers, cancel, source);
+    IF result = CSP.Success THEN
+        IF source = 0 THEN ASSERT(left.Get(value)) ELSE ASSERT(right.Get(value)) END
+    END;
+    RETURN result
+END ReceiveEither;
+```
+
+Send and receive offers from different generic instances, and legacy offers,
+may be mixed in the same `ARRAY OF CSP.Offer`. Typed offers are normalized before
+entering the coordinator; their typed `Get` methods preserve the result type.
+Exactly one branch commits; losing branches are withdrawn atomically. Two
+branches of the same choice cannot rendezvous with each other. On `Success`
+or `Closed`, the returned index identifies the branch; on `Cancelled`,
+`WouldBlock` or `Invalid`, it is -1. An empty array, `NIL` entry, repeated offer
+object, or previously used offer is `Invalid`. Every accepted choice consumes
+all its offers, including after cancellation or `WouldBlock`; create new offers
+for the next choice. `Get` succeeds only on the selected successful receive.
+
+The first implementation uses one passive coordinator monitor and rotates the
+starting branch of successive multi-branch choices. This avoids fixed branch
+priority, but is not a guarantee of scheduler fairness or libthread's randomized
+`alt` policy. There are no callbacks under the monitor, polling loops, per-channel
+active objects, built-in deadlines, or new ownership rules. The implementation
+prioritizes auditable communication semantics over maximum throughput. The
+generic facade allocates one GC-traced payload box for each send or send offer.
+It uses ordinary typed assignment rather than raw memory copying; applications
+need no `ANY` payloads, casts, or handwritten channel wrappers.
+
+Run the native concurrency tests from the checkout:
+
+```sh
+python3 scripts/test-a2-csp.py --repeat 20
+```
+
+They compile into a temporary directory and exercise rendezvous, FIFO/backpressure,
+heterogeneous and bilateral choices across generic instances, cancellation,
+close/drain, typed record/array copying, GC, invalid offers, and contention with
+eight producers and three consumers. Five negative compilation cases check
+that incorrect payloads, result variables and channel types are rejected. Each
+suite transfers 2,400 values and checks for loss/duplication; every native process
+has a timeout so a blocked protocol fails the test run.
+
 The native bridge also has a fragmented-input sanitizer probe (from the repo root):
 
 ```sh
