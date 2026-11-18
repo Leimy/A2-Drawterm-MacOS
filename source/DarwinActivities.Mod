@@ -3,7 +3,8 @@ MODULE DarwinActivities;
     A2 process that constructs them. Park and Yield can be called at depth. *)
 IMPORT SYSTEM, Glue, Unix, Objects, Heaps, Machine, Modules;
 
-CONST CheckpointInterval* = 256; (* explicit work checkpoints per turn *)
+CONST CheckpointInterval* = 256; (* work checkpoints per turn *)
+	TreeCancelled = 1001; (* unwind a parked guard on its own stack *)
 
 TYPE
 	Activity* = OBJECT
@@ -34,15 +35,17 @@ TYPE
 	END Activity;
 
 	BodyActivity = OBJECT(Activity)
-	VAR body: Objects.ActivityBody;
+	VAR body: Objects.ActivityBody; returned: BOOLEAN;
 		PROCEDURE Run*;
-		BEGIN body(subject) END Run;
+		BEGIN body(subject); returned := TRUE
+		FINALLY IF ~returned THEN owner.Fail END
+		END Run;
 	END BodyActivity;
 
 	WaitQueue = RECORD first, last: Activity END;
 
 	Monitor = OBJECT
-	VAR bound: Modules.Module; nextBound: Monitor; scheduler: Scheduler; holder: Activity; guards, entrants: WaitQueue;
+	VAR bound: Modules.Module; nextBound, prevGuarded, nextGuarded: Monitor; scheduler: Scheduler; holder: Activity; guards, entrants: WaitQueue;
 
 		PROCEDURE Append(VAR q: WaitQueue; a: Activity);
 		BEGIN
@@ -50,14 +53,31 @@ TYPE
 			q.last := a
 		END Append;
 
+		(* Track only monitors that have guards waiting. Completed objects can
+		   be collected while a long-lived scheduler is still running. *)
+		PROCEDURE TrackGuards;
+		BEGIN
+			nextGuarded := scheduler.guarded;
+			IF nextGuarded # NIL THEN nextGuarded.prevGuarded := SELF END;
+			scheduler.guarded := SELF
+		END TrackGuards;
+
+		PROCEDURE UntrackGuards;
+		BEGIN
+			IF prevGuarded = NIL THEN scheduler.guarded := nextGuarded ELSE prevGuarded.nextGuarded := nextGuarded END;
+			IF nextGuarded # NIL THEN nextGuarded.prevGuarded := prevGuarded END;
+			prevGuarded := NIL; nextGuarded := NIL
+		END UntrackGuards;
+
 		PROCEDURE HandOff;
 		VAR a, prev: Activity;
 		BEGIN
 			holder := NIL; prev := NIL; a := guards.first;
 			WHILE a # NIL DO
-				IF a.guard(a.frame) THEN
+				IF scheduler.failed OR a.guard(a.frame) THEN
 					IF prev = NIL THEN guards.first := a.waitNext ELSE prev.waitNext := a.waitNext END;
 					IF guards.last = a THEN guards.last := prev END;
+					IF guards.first = NIL THEN UntrackGuards END;
 					a.waitNext := NIL; a.guard := NIL; a.frame := 0;
 					holder := a; a.Wake; RETURN
 				END;
@@ -77,15 +97,19 @@ TYPE
 			a := scheduler.running; ASSERT(a # NIL);
 			CASE op OF
 			| 0: IF holder = NIL THEN holder := a; RETURN END; Append(entrants, a)
-			| 1: ASSERT(holder = a); HandOff; a.guard := cond; a.frame := frame; Append(guards, a)
+			| 1: ASSERT(holder = a); IF scheduler.failed THEN HALT(TreeCancelled) END;
+				HandOff; a.guard := cond; a.frame := frame;
+				IF guards.first = NIL THEN TrackGuards END; Append(guards, a)
 			| 2: ASSERT(holder = a); HandOff; RETURN
 			END;
-			a.Park; ASSERT(holder = a)
+			a.Park; ASSERT(holder = a);
+			(* Resume with ownership so the compiler can unwind the EXCLUSIVE block. *)
+			IF (op = 1) & scheduler.failed THEN HALT(TreeCancelled) END
 		END Call;
 	END Monitor;
 
 	Scheduler* = OBJECT
-	VAR worker: Objects.Process; pool: ADDRESS; head, tail, running: Activity; live-, adopted-: SIZE; bindings: Monitor;
+	VAR worker: Objects.Process; pool: ADDRESS; head, tail, running: Activity; live-, adopted-: SIZE; bindings, guarded: Monitor; failed-: BOOLEAN;
 
 		PROCEDURE &Init*;
 		BEGIN
@@ -114,8 +138,17 @@ TYPE
 		PROCEDURE StartTree*(a: Activity);
 		BEGIN a.children := TRUE; Start(a) END StartTree;
 
-		(* Use this only when the workload owns all calls to this module monitor
-		   until Close restores ordinary locking. *)
+		PROCEDURE Fail*;
+		VAR m, next: Monitor;
+		BEGIN
+			IF failed THEN RETURN END;
+			failed := TRUE; m := guarded;
+			WHILE m # NIL DO
+				next := m.nextGuarded; IF m.holder = NIL THEN m.HandOff END; m := next
+			END
+		END Fail;
+
+		(* The workload owns all calls to this monitor until Close. *)
 		PROCEDURE BindModule*(obj: Modules.Module);
 		VAR m: Monitor;
 		BEGIN
@@ -173,6 +206,7 @@ TYPE
 		PROCEDURE Close*;
 		BEGIN
 			ASSERT((worker = Objects.CurrentProcess()) & (live = 0) & (pool # 0) & (worker.nextActivity = NIL));
+			ASSERT(guarded = NIL);
 			WHILE bindings # NIL DO
 				Objects.BindActivityMonitor(bindings.bound, bindings.Call, FALSE); bindings := bindings.nextBound
 			END;

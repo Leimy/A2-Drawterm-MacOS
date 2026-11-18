@@ -7,12 +7,12 @@ IMPORT A := DarwinActivities, Commands, Modules, Machine, Objects;
 TYPE
 	Job = OBJECT(A.Activity)
 	VAR nextJob: Job; monitor: Modules.Module; context: Commands.Context;
-		proc: PROCEDURE(context: Commands.Context); finished, returned: BOOLEAN;
+		proc: PROCEDURE(context: Commands.Context); finished, returned: BOOLEAN; scheduler: A.Scheduler;
 		PROCEDURE Run*;
 		BEGIN
 			Objects.SetContext(context); proc(context); context.out.Update; context.error.Update; returned := TRUE
 		FINALLY
-			IF ~returned THEN context.result := Commands.CommandTrapped END
+			IF ~returned THEN scheduler.Fail; context.result := Commands.CommandTrapped END
 		END Run;
 		PROCEDURE Complete;
 		BEGIN {EXCLUSIVE} finished := TRUE END Complete;
@@ -21,7 +21,8 @@ TYPE
 	END Job;
 
 	Queue = OBJECT
-	VAR first, last: Job; busy: POINTER TO ARRAY OF Modules.Module;
+	VAR first, last: Job; slots: POINTER TO ARRAY OF RECORD used: BOOLEAN; monitor: Modules.Module; inbox: Job END;
+		idle: SIZE; (* -1, or the one warm worker waiting for an assignment *)
 		PROCEDURE Eligible(): Job;
 		VAR j: Job; i: SIZE;
 		BEGIN
@@ -29,27 +30,56 @@ TYPE
 			WHILE j # NIL DO
 				IF j.monitor = NIL THEN RETURN j END;
 				i := 0;
-				WHILE (i < LEN(busy)) & (busy[i] # j.monitor) DO INC(i) END;
-				IF i = LEN(busy) THEN RETURN j END;
+				WHILE (i < LEN(slots)) & (slots[i].monitor # j.monitor) DO INC(i) END;
+				IF i = LEN(slots) THEN RETURN j END;
 				j := j.nextJob
 			END;
 			RETURN NIL
 		END Eligible;
-		PROCEDURE Put(j: Job);
-		BEGIN {EXCLUSIVE}
-			IF last = NIL THEN first := j ELSE last.nextJob := j END; last := j
-		END Put;
-		PROCEDURE Take(id: SIZE): Job;
-		VAR j, prev: Job;
-		BEGIN {EXCLUSIVE}
-			AWAIT(Eligible() # NIL); j := Eligible();
+		PROCEDURE Assign(id: SIZE; j: Job);
+		VAR prev: Job;
+		BEGIN
 			IF first = j THEN first := j.nextJob
 			ELSE prev := first; WHILE prev.nextJob # j DO prev := prev.nextJob END; prev.nextJob := j.nextJob END;
 			IF last = j THEN last := prev END;
-			j.nextJob := NIL; busy[id] := j.monitor; RETURN j
+			j.nextJob := NIL; slots[id].monitor := j.monitor; slots[id].inbox := j
+		END Assign;
+
+		PROCEDURE Put(j: Job);
+		VAR id: SIZE; w: Worker; p: Objects.Process; children, one: Objects.ActivityStart;
+		BEGIN {EXCLUSIVE}
+			IF last = NIL THEN first := j ELSE last.nextJob := j END; last := j;
+			j := Eligible(); IF j = NIL THEN RETURN END;
+			IF idle >= 0 THEN id := idle; idle := -1; Assign(id, j)
+			ELSE
+				id := 0; WHILE (id < LEN(slots)) & slots[id].used DO INC(id) END;
+				IF id < LEN(slots) THEN
+					slots[id].used := TRUE; Assign(id, j);
+					(* Async submissions can arrive from inside a lightweight tree. *)
+					p := Objects.CurrentProcess(); children := p.childActivity; one := p.nextActivity;
+					p.childActivity := NIL; p.nextActivity := NIL; NEW(w, id, SELF);
+					p.childActivity := children; p.nextActivity := one
+				END
+			END
+		END Put;
+
+		PROCEDURE Size(): SIZE;
+		VAR i, n: SIZE;
+		BEGIN {EXCLUSIVE}
+			n := 0; FOR i := 0 TO LEN(slots)-1 DO IF slots[i].used THEN INC(n) END END; RETURN n
+		END Size;
+
+		PROCEDURE Take(id: SIZE): Job;
+		VAR j: Job;
+		BEGIN {EXCLUSIVE}
+			IF slots[id].inbox = NIL THEN
+				slots[id].monitor := NIL; j := Eligible();
+				IF j # NIL THEN Assign(id, j)
+				ELSIF idle >= 0 THEN slots[id].used := FALSE; RETURN NIL
+				ELSE idle := id; AWAIT(slots[id].inbox # NIL) END
+			END;
+			j := slots[id].inbox; slots[id].inbox := NIL; RETURN j
 		END Take;
-		PROCEDURE Release(id: SIZE);
-		BEGIN {EXCLUSIVE} busy[id] := NIL END Release;
 	END Queue;
 
 	Worker = OBJECT
@@ -59,11 +89,13 @@ TYPE
 	VAR j: Job; s: A.Scheduler;
 	BEGIN {ACTIVE}
 		LOOP
-			j := queue.Take(id); NEW(s);
+			j := queue.Take(id); IF j = NIL THEN EXIT END; NEW(s); j.scheduler := s;
 			IF j.monitor # NIL THEN s.BindModule(j.monitor) END;
 			s.StartTree(j);
 			WHILE s.Dispatch() DO END;
-			ASSERT(s.live = 0); s.Close; queue.Release(id); j.Complete; j := NIL
+			ASSERT(s.live = 0); s.Close;
+			IF s.failed THEN j.context.result := Commands.CommandTrapped END;
+			j.scheduler := NIL; j.Complete; j := NIL
 		END
 	END Worker;
 
@@ -90,13 +122,14 @@ BEGIN
 END Lookup;
 
 PROCEDURE Start;
-VAR i: SIZE; w: Worker;
 BEGIN {EXCLUSIVE}
 	IF queue = NIL THEN
-		NEW(queue); NEW(queue.busy, count);
-		FOR i := 0 TO count-1 DO NEW(w, i, queue) END
+		NEW(queue); NEW(queue.slots, count); queue.idle := -1
 	END
 END Start;
+
+PROCEDURE PoolSize*(): SIZE;
+BEGIN IF count <= 0 THEN RETURN 0 END; Start; RETURN queue.Size() END PoolSize;
 
 PROCEDURE Route*(CONST cmd: ARRAY OF CHAR; context: Commands.Context; flags: SET; VAR res: INTEGER; VAR msg: ARRAY OF CHAR): BOOLEAN;
 VAR j: Job; mod, name, monitor: Modules.Name; m: Modules.Module;

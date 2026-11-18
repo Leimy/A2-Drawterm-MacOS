@@ -103,8 +103,9 @@ base_config=$AOSCONFIG
 export AOSCONFIG="$base_config ActivityWorkers 1 ActivityCommands DarwinActivitiesProbe.RecordWorker:-"
 run do DarwinActivitiesProbe.CheckReuse
 grep -F 'PASS one worker reused' run.log
-export AOSCONFIG="$base_config ActivityWorkers 2 ActivityCommands $routes,DarwinActivitiesProbe.BlockWorker:-,DarwinActivitiesProbe.ReleaseWorker:-"
+export AOSCONFIG="$base_config ActivityWorkers 4 ActivityCommands $routes,DarwinActivitiesProbe.BlockWorker:-,DarwinActivitiesProbe.ReleaseWorker:-"
 run do DarwinActivitiesProbe.CheckRouting
+grep -F 'PASS demand scaling' run.log
 grep -F 'PASS ordinary commands on two automatically assigned worker pthreads' run.log
 if [ "$limit" = 100000 ]; then run_timeout=600; fi
 run do "ConcurrentSieve.Run $limit"
@@ -118,5 +119,13 @@ if ! with_deadline 20 ./OberonLoader do DarwinActivitiesProbe.CheckRecovery > tr
    [ "$(grep -ac 'native signal' trap.log)" != 2 ] ||
    ! grep -aF 'PASS pooled HALT returned CommandTrapped' trap.log; then
     cat trap.log >&2
+    exit 1
+fi
+
+export AOSCONFIG="$base_config ActivityWorkers 1 ActivityCommands DarwinActivitiesProbe.ChildTrap:DarwinActivitiesProbe,DarwinActivitiesProbe.RecordWorker:DarwinActivitiesProbe"
+if ! with_deadline 20 ./OberonLoader do DarwinActivitiesProbe.CheckChildRecovery > child.log 2>&1 ||
+   ! grep -aF 'FailingChild' child.log >/dev/null ||
+   ! grep -aF 'PASS child trap unwound parent FINALLY' child.log; then
+    cat child.log >&2
     exit 1
 fi

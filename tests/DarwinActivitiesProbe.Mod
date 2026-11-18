@@ -1,5 +1,5 @@
 MODULE DarwinActivitiesProbe;
-IMPORT A := DarwinActivities, Commands, Kernel, Unix, Objects, Modules, ConcurrentSieve, CSPDemo, CSP;
+IMPORT A := DarwinActivities, Commands, Kernel, Unix, Objects, Modules, ConcurrentSieve, CSPDemo, CSP, DarwinCommandWorkers;
 
 CONST BatchSize = 256;
 TYPE
@@ -248,14 +248,17 @@ END BlockWorker;
 PROCEDURE ReleaseWorker*(context: Commands.Context);
 BEGIN {EXCLUSIVE}
 	AWAIT(entered); ASSERT(Objects.CurrentProcess().checkpointDue # NIL);
-	ASSERT(Unix.ThrThis() # blockedThread); released := TRUE
+	ASSERT(Unix.ThrThis() # blockedThread); ASSERT(DarwinCommandWorkers.PoolSize() = 2); released := TRUE
 END ReleaseWorker;
 
 PROCEDURE CheckRouting*(context: Commands.Context);
 VAR res: INTEGER; msg: Modules.Name;
 BEGIN
+	ASSERT(DarwinCommandWorkers.PoolSize() = 0);
 	Commands.Activate("DarwinActivitiesProbe.BlockWorker", NIL, {}, res, msg); ASSERT(res = Commands.Ok);
 	Commands.Activate("DarwinActivitiesProbe.ReleaseWorker", NIL, {Commands.Wait}, res, msg); ASSERT(res = Commands.Ok);
+	WHILE DarwinCommandWorkers.PoolSize() # 1 DO Objects.Sleep(1) END;
+	context.out.String("PASS demand scaling from zero to two workers and back to one"); context.out.Ln;
 	context.out.String("PASS ordinary commands on two automatically assigned worker pthreads"); context.out.Ln
 END CheckRouting;
 
@@ -271,6 +274,49 @@ BEGIN
 	ASSERT(Objects.CurrentProcess().checkpointDue # NIL);
 	previousWorker := Unix.ThrThis(); HALT(73)
 END TrapWorker;
+
+VAR cleanups, siblingCleanups, escaped: SIZE;
+TYPE
+	FailingChild = OBJECT
+	VAR done, armed: BOOLEAN;
+		PROCEDURE Arm;
+		BEGIN {EXCLUSIVE} armed := TRUE END Arm;
+		PROCEDURE Join;
+		BEGIN {EXCLUSIVE}
+			AWAIT(done)
+		END Join;
+	BEGIN {ACTIVE}
+		BEGIN {EXCLUSIVE} AWAIT(armed) END; HALT(73)
+	END FailingChild;
+
+	WaitingSibling = OBJECT
+	VAR child: FailingChild;
+		PROCEDURE &Init(c: FailingChild);
+		BEGIN child := c END Init;
+	BEGIN {ACTIVE}
+		child.Arm; child.Join; INC(escaped)
+	FINALLY
+		INC(siblingCleanups)
+	END WaitingSibling;
+
+PROCEDURE ChildTrap*(context: Commands.Context);
+VAR c: FailingChild; sibling: WaitingSibling;
+BEGIN
+	previousWorker := Unix.ThrThis(); NEW(c); NEW(sibling, c); c.Join; INC(escaped)
+FINALLY
+	INC(cleanups)
+END ChildTrap;
+
+PROCEDURE CheckChildRecovery*(context: Commands.Context);
+VAR res: INTEGER; msg: Modules.Name;
+BEGIN
+	Commands.Activate("DarwinActivitiesProbe.ChildTrap", NIL, {Commands.Wait}, res, msg);
+	ASSERT((res = Commands.CommandTrapped) & (cleanups = 1) & (siblingCleanups = 1) & (escaped = 0));
+	visits := 1; Kernel.GC;
+	Commands.Activate("DarwinActivitiesProbe.RecordWorker", NIL, {Commands.Wait}, res, msg);
+	ASSERT((res = 71) & (visits = 2));
+	context.out.String("PASS child trap unwound parent FINALLY and preserved worker"); context.out.Ln
+END CheckChildRecovery;
 
 PROCEDURE CheckRecovery*(context: Commands.Context);
 VAR res: INTEGER; pass: SIZE; msg: Modules.Name;
