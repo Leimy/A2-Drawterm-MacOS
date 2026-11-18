@@ -427,6 +427,64 @@ TYPE
 	BEGIN {ACTIVE} HALT(73)
 	END TrapOnEntry;
 
+TYPE
+	SleepLock = OBJECT
+		PROCEDURE Delay;
+		BEGIN {EXCLUSIVE} Objects.Sleep(5) END Delay;
+	END SleepLock;
+	Sleeper = OBJECT(A.Activity)
+	VAR delay: SIGNED32; done: BOOLEAN; lock: SleepLock;
+		PROCEDURE Run*;
+		BEGIN IF lock = NIL THEN Objects.Sleep(delay) ELSE lock.Delay END; done := TRUE END Run;
+	END Sleeper;
+
+PROCEDURE Timers*(context: Commands.Context);
+VAR s: A.Scheduler; slow, fast, yielding, locked: Sleeper;
+BEGIN
+	NEW(s); NEW(slow); NEW(fast); NEW(yielding);
+	slow.delay := 100; fast.delay := 5;
+	s.Start(slow); s.Start(fast); s.Start(yielding);
+	ASSERT(s.Dispatch()); ASSERT(~slow.done);
+	ASSERT(s.Dispatch()); ASSERT(~fast.done);
+	ASSERT(s.Dispatch()); ASSERT(~yielding.done);
+	WHILE ~yielding.done DO ASSERT(s.Dispatch()) END;
+	(* Delaying under a passive object's native monitor must finish within its
+	   dispatch turn, otherwise a sibling might deadlock that same pthread. *)
+	Kernel.GC; s.Drain; ASSERT(slow.done & fast.done);
+	NEW(locked); NEW(locked.lock); s.Start(locked); ASSERT(s.Dispatch()); ASSERT(locked.done); s.Close;
+	context.out.String("PASS positive sleeps park, zero sleep yields, and timed stacks survive GC"); context.out.Ln
+END Timers;
+
+PROCEDURE ServiceLifecycle*(context: Commands.Context);
+VAR res, cycle: INTEGER; msg: Modules.Name;
+BEGIN
+	FOR cycle := 1 TO 2 DO
+		Commands.Activate("DarwinDesktopServiceProbe.Run", context, {Commands.Wait}, res, msg); ASSERT(res = 0);
+		Modules.FreeModule("DarwinDesktopServiceProbe", res, msg); ASSERT(res = 0);
+		Modules.FreeModule("Events", res, msg); ASSERT(res = 0);
+		Modules.FreeModule("DarwinServices", res, msg); ASSERT(res = 0)
+	END;
+	context.out.String("PASS two load, delivery, shutdown and unload cycles"); context.out.Ln
+END ServiceLifecycle;
+
+PROCEDURE SleepTrap*(context: Commands.Context);
+VAR child: TrapOnEntry;
+BEGIN
+	previousWorker := Unix.ThrThis(); NEW(child); Objects.Sleep(60000); INC(escaped)
+FINALLY INC(cleanedNative)
+END SleepTrap;
+
+PROCEDURE CheckSleepRecovery*(context: Commands.Context);
+VAR res: INTEGER; msg: Modules.Name;
+BEGIN
+	Commands.Activate("DarwinActivitiesProbe.SleepTrap", NIL, {Commands.Wait}, res, msg);
+	ASSERT((res = Commands.CommandTrapped) & (cleanedNative = 1) & (escaped = 0));
+	Kernel.GC; visits := 1;
+	Commands.Activate("DarwinActivitiesProbe.RecordWorker", NIL, {Commands.Wait}, res, msg);
+	ASSERT((res = 71) & (visits = 2));
+	context.out.String("PASS cancelled 60-second sleep and reused worker"); context.out.Ln
+END CheckSleepRecovery;
+
 PROCEDURE NativeWaitTrap*(context: Commands.Context);
 VAR child: TrapOnEntry; n: SIZE;
 BEGIN

@@ -612,3 +612,39 @@ The decoder source carries GPL notices. No decoder sources or binaries are
 vendored by this probe. Runtime integration still needs bounded ADTS input,
 per-stream decoder state, PCM format-change handling and mixer integration;
 release packaging also needs to account for the decoder's license notices.
+
+## Experimental desktop with lightweight activities
+
+From the source checkout on Apple Silicon, build the experimental image with
+the native compiler in `build/native-toolchain`. Use a separate writable
+directory so previously compiled modules cannot shadow this image's modules.
+
+```sh
+cd ~/srcs/oberon
+scripts/build-a2-native.sh desktop-lightweight build/native-lightweight-desktop
+mkdir -p ~/A2-work-lightweight
+cd ~/A2-work-lightweight
+~/srcs/oberon/build/native-lightweight-desktop/a2
+```
+
+The system event log starts a lightweight dispatcher at desktop startup. A
+native producer can enqueue an event, and the dispatcher wakes on its service
+worker to deliver it to the registered sinks. System → Shutdown stops the
+queue and joins the dispatcher. Other desktop active objects continue to use
+their existing execution paths.
+
+On a lightweight activity, `Objects.Sleep(ms)` parks until a monotonic deadline.
+Other runnable activities can use that pthread in the meantime. A zero delay
+yields one turn. A caller holding a native A2 monitor uses pthread sleep so a
+sibling cannot deadlock the worker by trying to acquire that monitor.
+
+To repeat the service lifecycle and timer regressions, run
+`scripts/test-a2-lightweight-activities.sh` from the checkout. To exercise
+desktop startup, Tetris, and the Shutdown menu with a simulated drawterm
+connection, run the following from the checkout:
+
+```sh
+python3 scripts/test-a2-desktop-input.py --cwd "$(mktemp -d)" \
+    --loader build/native-lightweight-desktop/OberonLoader \
+    --core build/native-lightweight-desktop/DarwinAosDrawtermDesktopAa --tetris-shutdown
+```

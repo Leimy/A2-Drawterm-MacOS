@@ -255,6 +255,8 @@ TYPE
 		nextActivity*, childActivity*: ActivityStart;
 		prepareWait*: PROCEDURE {DELEGATE}(): EventHandler;
 		waitExternal*: PROCEDURE {DELEGATE}(): BOOLEAN;
+		sleepActivity*: PROCEDURE {DELEGATE}(ms: SIGNED32);
+		nativeLockDepth: SIZE;
 		awaitSocket*: PROCEDURE {DELEGATE}(fd: SIGNED32; writing: BOOLEAN): BOOLEAN;
 		checkpointDue*: EventHandler; checkpointBudget*: SIZE;
 		activitySelf*: ActivitySelf;
@@ -570,7 +572,10 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 			(* wait until threads with complied AWAIT conditions have left the monitor *)
 			Unix.CondWait( lock.enter, lock.mtx );
 		END;
-		p.mode := Running;  hdr.lockedBy := p;  p.waitingOn := NIL
+		p.mode := Running;  hdr.lockedBy := p;  p.waitingOn := NIL;
+		#IF LIGHTWEIGHT THEN
+		INC(p.nativeLockDepth)
+		#END
 	END Lock;
 
 	#IF LIGHTWEIGHT THEN
@@ -645,6 +650,7 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 		lock := SYSTEM.VAL(LockT,hdr.lock);
 		#IF LIGHTWEIGHT THEN
 		IF lock.monitor # NIL THEN lock.monitor(2, NIL, 0); RETURN END;
+		DEC(hdr.lockedBy(Process).nativeLockDepth);
 		IF lock.external # NIL THEN SignalExternal(lock) END;
 		#END
 		IF hdr.awaitingCond.head # NIL THEN  c := FindCondition( hdr.awaitingCond )  END;
@@ -705,7 +711,18 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 	END SetPriority;
 
 	PROCEDURE Sleep*( ms: SIGNED32 );
+	#IF LIGHTWEIGHT THEN
+	VAR p: Process;
+	#END
 	BEGIN
+		#IF LIGHTWEIGHT THEN
+		p := CurrentProcess();
+		(* A sibling could block this pthread trying to acquire a native lock
+		   held by the sleeper. Scheduler-owned monitors can safely park. *)
+		IF (p # NIL) & (p.sleepActivity # NIL) & (p.nativeLockDepth = 0) THEN
+			p.sleepActivity(ms); RETURN
+		END;
+		#END
 		Unix.ThrSleep( ms );
 	END Sleep;
 

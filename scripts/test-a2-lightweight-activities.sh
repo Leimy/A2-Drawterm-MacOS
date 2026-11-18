@@ -49,7 +49,7 @@ run() {
 run compile -p=DarwinA2 --traceModule=Trace --define=UNIX,AARCH64,DESKTOP,LIGHTWEIGHT Darwin.Unix.Mod
 run execute core.txt
 grep -q 'Link successful' run.log
-run compile -p=DarwinA2 CSP.Mod CSPChannels.Mod CSPDemo.Mod ConcurrentSieve.Mod DarwinActivities.Mod DarwinCommandWorkers.Mod DarwinActivitiesProbe.Mod
+run compile -p=DarwinA2 CSP.Mod CSPChannels.Mod CSPDemo.Mod ConcurrentSieve.Mod DarwinActivities.Mod DarwinServices.Mod DarwinCommandWorkers.Mod DarwinActivitiesProbe.Mod
 if ! "$command_mode"; then
     # Keep the ordinary network objects and symbols separate from the fiber build.
     (
@@ -64,7 +64,7 @@ if ! "$command_mode"; then
         grep -F 'NETWORK PASS UDP loopback' run.log
     )
 fi
-run compile -p=DarwinA2 --define=UNIX,AARCH64,DESKTOP,LIGHTWEIGHT Network.Mod Unix.IP.Mod Unix.Sockets.Mod Unix.TCP.Mod DarwinTCPActivityProbe.Mod
+run compile -p=DarwinA2 --define=UNIX,AARCH64,DESKTOP,LIGHTWEIGHT Events.Mod DarwinDesktopServiceProbe.Mod Network.Mod Unix.IP.Mod Unix.Sockets.Mod Unix.TCP.Mod DarwinTCPActivityProbe.Mod
 test -s TCP.GofAa
 test -s DarwinActivitiesProbe.GofAa
 export OBERON_CORE="$work/DarwinAosCompilerAa"
@@ -74,6 +74,12 @@ if "$command_mode"; then
     ./OberonLoader do "$2"
     exit $?
 fi
+run do DarwinActivitiesProbe.Timers
+grep -F "PASS positive sleeps park" run.log
+run do DarwinActivitiesProbe.ServiceLifecycle
+grep -F "PASS two load, delivery, shutdown and unload cycles" run.log
+grep -F "PASS native producer" run.log
+grep -F "System event log shut down." run.log
 run do DarwinTCPActivityProbe.Run
 grep -F "PASS TCP.Available" run.log
 grep -F "PASS TCP setup IPv4" run.log
@@ -185,5 +191,12 @@ if ! with_deadline 20 ./OberonLoader do DarwinTCPActivityProbe.CheckCancellation
    ! grep -aF 'PASS cancellation unwinds a parked TCP sender' tcpwait.log ||
    ! grep -aF 'PASS setup cancellation:' tcpwait.log; then
     cat tcpwait.log >&2
+    exit 1
+fi
+
+export AOSCONFIG="$base_config ActivityWorkers 1 ActivityCommands DarwinActivitiesProbe.SleepTrap:-,DarwinActivitiesProbe.RecordWorker:-"
+if ! with_deadline 20 ./OberonLoader do DarwinActivitiesProbe.CheckSleepRecovery > sleep.log 2>&1 ||
+   ! grep -aF 'PASS cancelled 60-second sleep' sleep.log; then
+    cat sleep.log >&2
     exit 1
 fi

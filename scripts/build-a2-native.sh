@@ -1,22 +1,24 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 2 ] || { [ "$1" != compiler ] && [ "$1" != desktop ]; }; then
-    printf 'Usage: %s compiler|desktop OUTPUT_DIRECTORY\n' "$0" >&2
+if [ "$#" -ne 2 ] || { [ "$1" != compiler ] && [ "$1" != desktop ] && [ "$1" != desktop-lightweight ]; }; then
+    printf 'Usage: %s compiler|desktop|desktop-lightweight OUTPUT_DIRECTORY\n' "$0" >&2
     exit 2
 fi
 target=$1
 mkdir -p "$2"
 output=$(CDPATH= cd -- "$2" && pwd)
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-loader=${A2_LOADER:-$repo/build/native-compiler/OberonLoader}
-compiler=${A2_COMPILER_CORE:-$repo/build/native-compiler/DarwinAosCompilerAa}
-library=${A2_COMPILER_LIBRARY:-$repo/build/native-compiler}
+seed=$repo/build/native-compiler
+if [ "$target" = desktop-lightweight ]; then seed=$repo/build/native-toolchain; fi
+loader=${A2_LOADER:-$seed/OberonLoader}
+compiler=${A2_COMPILER_CORE:-$seed/DarwinAosCompilerAa}
+library=${A2_COMPILER_LIBRARY:-$seed}
 loader=$(CDPATH= cd -- "$(dirname -- "$loader")" && pwd)/$(basename -- "$loader")
 compiler=$(CDPATH= cd -- "$(dirname -- "$compiler")" && pwd)/$(basename -- "$compiler")
 library=$(CDPATH= cd -- "$library" && pwd)
 
-if [ "$target" = desktop ]; then
+if [ "$target" != compiler ]; then
     recipe=$repo/build/DarwinAArch64DrawtermDesktop.txt
     image=DarwinAosDrawtermDesktopAa
 else
@@ -25,7 +27,19 @@ else
 fi
 test -x "$loader"
 test -s "$compiler"
-sed '1d' "$recipe" > "$output/NativeBuild.txt"
+if [ "$target" = desktop-lightweight ]; then
+    # The low-level Unix module is built before KernelLog is available.
+    sed -e '1d' \
+        -e '2s/Compiler.Compile /Compiler.Compile --traceModule=Trace /' \
+        -e 's/--define=UNIX,AARCH64,DESKTOP /--define=UNIX,AARCH64,DESKTOP,LIGHTWEIGHT /g' \
+        -e '2s/ Events.Mod / DarwinActivities.Mod DarwinServices.Mod DarwinCommandWorkers.Mod Events.Mod /' \
+        -e '3s/ Events / DarwinActivities DarwinServices DarwinCommandWorkers Events /' \
+        "$recipe" > "$output/NativeBuild.txt"
+    cc -arch arm64 -mmacosx-version-min="${A2_MACOS_MIN_VERSION:-13.0}" -O2 -dynamiclib -Wno-deprecated-declarations \
+        "$repo/UnixAos/boot/DarwinActivities.c" -o "$output/libA2Activities.dylib"
+else
+    sed '1d' "$recipe" > "$output/NativeBuild.txt"
+fi
 build_log="$output/NativeBuild.log"
 (
     cd "$output"
@@ -41,7 +55,7 @@ if grep -Eq 'error:|Command not successful|native signal|Trap [0-9]+' "$build_lo
     exit 1
 fi
 test -s "$output/$image"
-if [ "$target" = desktop ]; then
+if [ "$target" != compiler ]; then
     "$repo/scripts/package-a2-drawterm.sh" "$output"
 else
     cp "$repo/build/DarwinAArch64CompilerExtras.txt" "$output/NativeExtras.txt"

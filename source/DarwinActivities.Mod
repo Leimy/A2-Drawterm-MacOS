@@ -8,7 +8,7 @@ CONST CheckpointInterval* = 256; (* work checkpoints per turn *)
 TYPE
 	Activity* = OBJECT
 	VAR owner: Scheduler; next: Activity; fiber: ADDRESS; queued: BOOLEAN;
-		externalNext: Activity; socketWatch: ADDRESS; posted: BOOLEAN; waitNext: Activity; guard: Objects.ActivityCondition; frame: ADDRESS;
+		externalNext: Activity; deadline: SIGNED64; socketWatch: ADDRESS; posted: BOOLEAN; waitNext: Activity; guard: Objects.ActivityCondition; frame: ADDRESS;
 		children: BOOLEAN; context: ANY; subject: Objects.ActivitySelf;
 
 		PROCEDURE Run*;
@@ -217,23 +217,39 @@ TYPE
 			RETURN TRUE
 		END WaitSocket;
 
+		PROCEDURE Sleep(ms: SIGNED32);
+		BEGIN
+			IF failed THEN HALT(Objects.ActivityTreeCancelled) END;
+			IF ms <= 0 THEN running.Yield
+			ELSE
+				InitInbox; running.posted := FALSE;
+				running.deadline := now() + SIGNED64(ms) * 1000000;
+				IGNORE WaitExternal(); running.deadline := 0
+			END;
+			IF failed THEN HALT(Objects.ActivityTreeCancelled) END
+		END Sleep;
+
 		PROCEDURE PollExternal(wait: BOOLEAN);
-		VAR a, next, prev: Activity;
+		VAR a, next, prev: Activity; earliest, sample: SIGNED64;
 		BEGIN
 			IF external = NIL THEN RETURN END;
 			Unix.MtxLock(inboxLock);
 			LOOP
-				prev := NIL; a := external;
+				earliest := 0; sample := 0; prev := NIL; a := external;
 				WHILE a # NIL DO
 					next := a.externalNext;
-					IF a.posted OR failed OR ((a.socketWatch # 0) & (socketReady(a.socketWatch) # 0)) THEN
+					IF (a.deadline # 0) & (sample = 0) THEN sample := now() END;
+					IF a.posted OR failed OR ((a.deadline # 0) & (a.deadline <= sample)) OR ((a.socketWatch # 0) & (socketReady(a.socketWatch) # 0)) THEN
 						IF prev = NIL THEN external := next ELSE prev.externalNext := next END;
 						a.externalNext := NIL; a.Wake
-					ELSE prev := a END;
+					ELSE
+						prev := a;
+						IF (a.deadline # 0) & ((earliest = 0) OR (a.deadline < earliest)) THEN earliest := a.deadline END
+					END;
 					a := next
 				END;
 				IF ~wait OR (head # NIL) THEN EXIT END;
-				Unix.CondWait(changed, inboxLock)
+				IF earliest = 0 THEN Unix.CondWait(changed, inboxLock) ELSE waitUntil(changed, inboxLock, earliest) END
 			END;
 			Unix.MtxUnlock(inboxLock)
 		END PollExternal;
@@ -260,8 +276,8 @@ TYPE
 			hostContext := Objects.CurrentContext(); Objects.SetContext(a.context); worker.activitySelf := a.subject;
 			IF a.children THEN worker.childActivity := Adopt END;
 			worker.checkpointBudget := CheckpointInterval; worker.checkpointDue := BudgetExpired;
-			worker.prepareWait := PrepareWait; worker.waitExternal := WaitExternal; worker.awaitSocket := WaitSocket;
-			done := resume(a.fiber) # 0; worker.prepareWait := NIL; worker.waitExternal := NIL; worker.awaitSocket := NIL;
+			worker.prepareWait := PrepareWait; worker.waitExternal := WaitExternal; worker.awaitSocket := WaitSocket; worker.sleepActivity := Sleep;
+			done := resume(a.fiber) # 0; worker.prepareWait := NIL; worker.waitExternal := NIL; worker.awaitSocket := NIL; worker.sleepActivity := NIL;
 			worker.checkpointDue := NIL; worker.childActivity := NIL;
 			worker.activitySelf := NIL; a.context := Objects.CurrentContext(); Objects.SetContext(hostContext);
 			IF done THEN
@@ -287,6 +303,8 @@ TYPE
 	END Scheduler;
 
 VAR library: ADDRESS;
+	now: PROCEDURE {C}(): SIGNED64;
+	waitUntil: PROCEDURE {C}(changed, lock: ADDRESS; deadline: SIGNED64);
 	watchSocket: PROCEDURE {C}(fd, writing: SIGNED32; lock, changed: ADDRESS): ADDRESS;
 	socketReady: PROCEDURE {C}(watch: ADDRESS): SIGNED32;
 	unwatchSocket: PROCEDURE {C}(watch: ADDRESS);
@@ -322,6 +340,8 @@ BEGIN Heaps.RegisterCandidates(adr, size) END Candidates;
 
 BEGIN
 	library := Glue.dlopen(ADDRESSOF("@executable_path/libA2Activities.dylib"), 2); ASSERT(library # 0);
+	Unix.Dlsym(library, "activity_now", ADDRESSOF(now));
+	Unix.Dlsym(library, "activity_wait_until", ADDRESSOF(waitUntil));
 	Unix.Dlsym(library, "activity_watch_socket", ADDRESSOF(watchSocket));
 	Unix.Dlsym(library, "activity_socket_ready", ADDRESSOF(socketReady));
 	Unix.Dlsym(library, "activity_unwatch_socket", ADDRESSOF(unwatchSocket));

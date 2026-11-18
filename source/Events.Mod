@@ -15,7 +15,11 @@ MODULE Events; (** AUTHOR "staubesv"; PURPOSE "System events interface"; *)
  *)
 
 IMPORT
-	KernelLog, Modules, Clock;
+	KernelLog, Modules, Clock
+	#IF LIGHTWEIGHT THEN
+	, DarwinServices
+	#END
+	;
 
 CONST
 
@@ -231,7 +235,9 @@ TYPE
 		BEGIN
 			BEGIN {EXCLUSIVE} state := Terminating; END;
 			queue.Stop;
+			#IF ~LIGHTWEIGHT THEN
 			BEGIN {EXCLUSIVE} AWAIT(state = Terminated); END;
+			#END
 		END Stop;
 
 		PROCEDURE &Init*;
@@ -241,16 +247,24 @@ TYPE
 			state := Running;
 		END Init;
 
-	BEGIN {ACTIVE}
-		WHILE state = Running DO
-			DispatchEvents;
-			queue.AwaitEvents();
-		END;
-		BEGIN {EXCLUSIVE} state := Terminated; END;
+		PROCEDURE Run;
+		BEGIN
+			WHILE state = Running DO
+				DispatchEvents;
+				queue.AwaitEvents();
+			END;
+			BEGIN {EXCLUSIVE} state := Terminated; END;
+		END Run;
+	#IF ~LIGHTWEIGHT THEN
+	BEGIN {ACTIVE} Run
+	#END
 	END EventDispatcher;
 
 VAR
 	dispatcher : EventDispatcher;
+	#IF LIGHTWEIGHT THEN
+	service: DarwinServices.Service;
+	#END
 
 	(* statistics *)
 	NnofEvents-, NnofDiscarded-, NnofEventsHandled-, NnofEventsNotHandled-,
@@ -346,11 +360,17 @@ END Install;
 PROCEDURE Cleanup;
 BEGIN
 	dispatcher.Stop;
+	#IF LIGHTWEIGHT THEN
+	IGNORE service.Join(); service := NIL;
+	#END
 	IF Verbose THEN KernelLog.Enter; KernelLog.String(ModuleName); KernelLog.String(": System event log shut down."); KernelLog.Exit; END;
 END Cleanup;
 
 BEGIN
 	NEW(dispatcher);
+	#IF LIGHTWEIGHT THEN
+	service := DarwinServices.Start(dispatcher.Run);
+	#END
 	Modules.InstallTermHandler(Cleanup);
 	IF Verbose THEN KernelLog.Enter; KernelLog.String(ModuleName); KernelLog.String(": System event log started."); KernelLog.Exit; END;
 END Events.

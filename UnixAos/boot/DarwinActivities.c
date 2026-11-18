@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <poll.h>
+#include <time.h>
 #include <sys/event.h>
 #include <sys/mman.h>
 #include <stdint.h>
@@ -159,6 +160,24 @@ int activity_cancel_setup(int q)
     int res;
     do { res = kevent(q, &event, 1, NULL, 0, NULL); } while (res < 0 && errno == EINTR);
     return res;
+}
+
+/* Use the same monotonic clock for the deadline check and remaining time.
+   Recheck after every notification, timeout, or spurious wakeup. */
+int64_t activity_now(void)
+{
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts)) abort();
+    return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+}
+
+void activity_wait_until(pthread_cond_t *changed, pthread_mutex_t *lock, int64_t deadline)
+{
+    int64_t ns = deadline - activity_now();
+    if (ns <= 0) return;
+    struct timespec delay = { .tv_sec = ns / 1000000000, .tv_nsec = ns % 1000000000 };
+    int res = pthread_cond_timedwait_relative_np(changed, lock, &delay);
+    if (res && res != ETIMEDOUT) abort();
 }
 
 /* GCD only touches native storage. The owning A2 worker picks the fiber. */
