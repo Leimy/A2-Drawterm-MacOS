@@ -189,10 +189,58 @@ BEGIN
 	context.out.String("PASS cooperative CPU loops alternate every 256 checkpoints; unchecked loop occupies one turn"); context.out.Ln
 END CheckFairness;
 
+TYPE
+	Pinned = OBJECT(A.Activity)
+	VAR worker: Unix.Thread_t; id: SIZE; finished: BOOLEAN;
+		PROCEDURE Run*;
+		VAR token: Token;
+		BEGIN
+			ASSERT(Unix.ThrThis() = worker);
+			NEW(token); token.value := id; Park;
+			ASSERT((Unix.ThrThis() = worker) & (token.value = id)); finished := TRUE
+		END Run;
+	END Pinned;
+
+	TestWorker = OBJECT
+	VAR tid: Unix.Thread_t; parked, released, finished: BOOLEAN;
+		PROCEDURE WaitParked(): Unix.Thread_t;
+		BEGIN {EXCLUSIVE} AWAIT(parked); RETURN tid END WaitParked;
+		PROCEDURE Release;
+		BEGIN {EXCLUSIVE} released := TRUE END Release;
+		PROCEDURE Join;
+		BEGIN {EXCLUSIVE} AWAIT(finished) END Join;
+
+	VAR scheduler: A.Scheduler; tasks: ARRAY 64 OF Pinned; i: SIZE;
+	BEGIN {ACTIVE}
+		NEW(scheduler); tid := Unix.ThrThis();
+		FOR i := 0 TO LEN(tasks)-1 DO
+			NEW(tasks[i]); tasks[i].worker := tid; tasks[i].id := i; scheduler.Start(tasks[i])
+		END;
+		WHILE scheduler.Dispatch() DO END;
+		ASSERT(scheduler.live = LEN(tasks));
+		BEGIN {EXCLUSIVE} parked := TRUE; AWAIT(released) END;
+		FOR i := 0 TO LEN(tasks)-1 DO tasks[i].Wake END;
+		WHILE scheduler.Dispatch() DO END;
+		FOR i := 0 TO LEN(tasks)-1 DO ASSERT(tasks[i].finished) END;
+		scheduler.Close;
+		BEGIN {EXCLUSIVE} finished := TRUE END
+	END TestWorker;
+
+PROCEDURE CheckWorkers(context: Commands.Context);
+VAR first, second: TestWorker; t1, t2: Unix.Thread_t;
+BEGIN
+	NEW(first); NEW(second);
+	t1 := first.WaitParked(); t2 := second.WaitParked(); ASSERT(t1 # t2);
+	Kernel.GC;
+	second.Release; second.Join; (* first is still blocked on its native monitor *)
+	first.Release; first.Join;
+	context.out.String("PASS 128 lightweight activities on two distinct pthreads, parked GC and independent progress"); context.out.Ln
+END CheckWorkers;
+
 PROCEDURE Run*(context: Commands.Context);
 VAR trial: Trial; first: Filter; probe: GCProbe; limit: SIGNED32; value, factor, expected: SIZE; composite: POINTER TO ARRAY OF BOOLEAN;
 BEGIN
-	CheckFairness(context); CheckMonitors(context);
+	CheckWorkers(context); CheckFairness(context); CheckMonitors(context);
 	limit := 100000;
 	context.arg.SkipWhitespace; IF context.arg.Peek() > " " THEN context.arg.Int(limit,FALSE) END;
 	ASSERT((limit >= 2) & (limit <= 100000));

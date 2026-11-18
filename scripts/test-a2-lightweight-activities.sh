@@ -46,6 +46,7 @@ chmod u+rw DarwinLoopCheckpointProbe.GofAa DarwinLoopCheckpointProbe.SymAa
 run do DarwinLoopCheckpointProbe.Run
 grep -F 'PASS compiler checkpoints' run.log
 run do 'DarwinActivitiesProbe.Run 100000'
+grep -F 'PASS 128 lightweight activities on two distinct pthreads' run.log
 grep -F 'PASS cooperative CPU loops alternate' run.log
 grep -F 'PASS two ACTIVE bodies, contended EXCLUSIVE and 1000 AWAIT exchanges on one pthread' run.log
 grep 'PASS single worker, parked GC and exact sieve through 100000: 9592 activities' run.log
