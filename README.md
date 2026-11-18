@@ -48,6 +48,15 @@ See [native build and desktop instructions](README-native-desktop.md) for buildi
 launching, controls and verification. The 2026-11-13 readiness preview includes
 these changes; older preview downloads may not include them.
 
+### SuperPET on macOS
+
+The current source build includes **SuperPET**, a fork of the Programmer’s Editing
+Tool with Acme-style mouse actions and structural editing. Open **Development →
+SuperPET**. Right-click a module name to visit its source, or middle-click a command
+in scratch text to run it. The **Edit** field applies expressions such as
+`x/TODO/c/DONE/` to the current selection. See the [SuperPET guide](README-native-desktop.md#superpet)
+for command arguments, examples, and supported editing operations.
+
 In order to run A2 on your Windows- or Linux-based system, clone this repository and unzip the appropriate binary within the repository. Example (Linux, AMD64):
 ```
 git clone https://gitlab.inf.ethz.ch/felixf/oberon.git

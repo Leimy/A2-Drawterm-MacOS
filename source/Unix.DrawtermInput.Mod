@@ -2,7 +2,7 @@ MODULE DrawtermInput;
 
 (** Mouse and keyboard input from drawterm's direct 9P export. *)
 
-IMPORT Inputs, Drawterm9PMux, DrawtermDisplay, KernelLog;
+IMPORT Inputs, Drawterm9PMux, DrawtermDisplay, KernelLog, Strings;
 
 CONST MouseFid = 4; KeyboardFid = 5; CursorFid = 6;
 	TraceInput = FALSE;
@@ -159,15 +159,32 @@ BEGIN
 	END
 END KeySym;
 
+PROCEDURE Warp(x, y: SIZE);
+VAR cmd, number: ARRAY 48 OF CHAR; ox, oy: SIGNED32; msg: Inputs.AbsMouseMsg;
+BEGIN
+	IF (x < 0) OR (y < 0) OR (x >= DrawtermDisplay.display.width) OR (y >= DrawtermDisplay.display.height) THEN RETURN END;
+	DrawtermDisplay.display.Origin(ox, oy);
+	cmd := "m "; Strings.IntToStr(x+ox, number); Strings.AppendX(cmd, number);
+	Strings.AppendX(cmd, " "); Strings.IntToStr(y+oy, number); Strings.AppendX(cmd, number);
+	IF mouse.connection.Write(MouseFid, 0, cmd, 0, Strings.Length(cmd)) THEN
+		(* Cocoa may move the hardware pointer without emitting a mouse event. *)
+		msg.x := SIGNED32(x); msg.y := SIGNED32(y); msg.z := 0;
+		msg.dx := 0; msg.dy := 0; msg.dz := 0; msg.keys := {}; Inputs.mouse.Handle(msg)
+	END
+END Warp;
+
 PROCEDURE Install*;
-VAR x, y: SIGNED32; c: Drawterm9PMux.Connection;
+VAR writable: BOOLEAN; x, y: SIGNED32; c: Drawterm9PMux.Connection;
 BEGIN
 	IF (mouse = NIL) & (DrawtermDisplay.display # NIL) & DrawtermDisplay.display.ready THEN
 		c := DrawtermDisplay.display.connection;
-		IF c.Walk(Drawterm9PMux.RootFid, MouseFid, "dev/mouse") & c.Open(MouseFid, Drawterm9PMux.ReadOnly) &
+		IF ~c.Walk(Drawterm9PMux.RootFid, MouseFid, "dev/mouse") THEN RETURN END;
+		writable := c.Open(MouseFid, Drawterm9PMux.ReadWrite);
+		IF (writable OR c.Open(MouseFid, Drawterm9PMux.ReadOnly)) &
 			c.Walk(Drawterm9PMux.RootFid, KeyboardFid, "dev/kbd") & c.Open(KeyboardFid, Drawterm9PMux.ReadOnly) THEN
 			DrawtermDisplay.display.Origin(x, y); NEW(mouse, c, x, y); NEW(keyboard, c);
 			Inputs.main.SetLimits(DrawtermDisplay.display.width - 1, DrawtermDisplay.display.height - 1, 0);
+			IF writable THEN Inputs.WarpPointer := Warp END;
 			HideHostCursor(c);
 			KernelLog.String("drawterm input ready"); KernelLog.Ln
 		ELSE

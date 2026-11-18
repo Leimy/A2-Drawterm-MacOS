@@ -124,8 +124,8 @@ BEGIN
     KernelLog.String('GENERIC CSP PASS one coordinator across types (200 choice races)'); KernelLog.Ln
 END MixedChoices;
 
-PROCEDURE FailureAndCompatibility;
-VAR numbers: Numbers.Channel; requests: Requests.Channel; legacy: CSP.IntegerChannel;
+PROCEDURE FailureAndBufferedChoice;
+VAR numbers: Numbers.Channel; requests: Requests.Channel;
     number: SIGNED64; request: Request; cancel: CSP.Cancellation; index: SIZE;
     left: Numbers.Offer; right: Requests.Offer; offers: ARRAY 2 OF CSP.Offer;
 BEGIN
@@ -141,25 +141,25 @@ BEGIN
     ASSERT(requests.Close());
     ASSERT(CSP.Select(offers, NIL, index) = CSP.Closed); ASSERT(index = 0);
     ASSERT(~right.Get(request)); ASSERT(request.id = 77);
-    NEW(legacy, 1); NEW(requests, 1);
-    ASSERT(legacy.Send(88, NIL) = CSP.Success); request.id := 99;
+    NEW(numbers, 1); NEW(requests, 1);
+    ASSERT(numbers.Send(88, NIL) = CSP.Success); request.id := 99;
     ASSERT(requests.Send(request, NIL) = CSP.Success);
-    offers[0] := legacy.ReceiveOffer(); right := requests.ReceiveOffer(); offers[1] := right;
+    offers[0] := numbers.ReceiveOffer(); right := requests.ReceiveOffer(); offers[1] := right;
     ASSERT(CSP.Select(offers, NIL, index) = CSP.Success);
     IF index = 0 THEN
         ASSERT(requests.Receive(request, NIL) = CSP.Success); ASSERT(request.id = 99);
-        ASSERT(legacy.TryReceive(number) = CSP.WouldBlock)
+        ASSERT(numbers.TryReceive(number) = CSP.WouldBlock)
     ELSE
         ASSERT(right.Get(request)); ASSERT(request.id = 99);
-        ASSERT(legacy.Receive(number, NIL) = CSP.Success); ASSERT(number = 88);
+        ASSERT(numbers.Receive(number, NIL) = CSP.Success); ASSERT(number = 88);
         ASSERT(requests.TryReceive(request) = CSP.WouldBlock)
     END;
-    KernelLog.String('GENERIC CSP PASS failure paths, offer reuse and legacy mixed choice'); KernelLog.Ln
-END FailureAndCompatibility;
+    KernelLog.String('GENERIC CSP PASS failure paths, offer reuse and buffered mixed choice'); KernelLog.Ln
+END FailureAndBufferedChoice;
 
 PROCEDURE Run*(context: Commands.Context);
 BEGIN
-    Values; MixedChoices; FailureAndCompatibility;
+    Values; MixedChoices; FailureAndBufferedChoice;
     KernelLog.String('GENERIC CSP TESTS PASS'); KernelLog.Ln
 END Run;
 END CSPGenericTests.

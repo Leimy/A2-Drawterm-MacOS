@@ -111,7 +111,7 @@ END {name}.
         for iteration in range(args.repeat):
             output = run('do', 'CSPTests.Run ~ CSPGenericTests.Run ~')
             if ('CSP TESTS PASS' not in output or 'GENERIC CSP TESTS PASS' not in output or
-                    output.count('CSP PASS ') != 14):
+                    output.count('CSP PASS ') != 15):
                 raise RuntimeError(output)
             print(f'PASS: native CSP suite {iteration + 1}/{args.repeat}', flush=True)
         output = run('do', 'CSPTests.Run ~ CSPGenericTests.Run ~ CSPTests.Run ~ CSPGenericTests.Run ~')

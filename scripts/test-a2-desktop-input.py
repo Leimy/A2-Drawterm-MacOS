@@ -63,7 +63,17 @@ def main():
     parser.add_argument('--pet-text-size', choices=['larger', 'smaller'], help='click PET text-size control after opening a source file')
     parser.add_argument('--pet-text-via-keyboard', action='store_true', help='use Ctrl +/- for --pet-text-size instead of clicking')
     parser.add_argument('--cwd', type=Path, help='working directory for A2')
+    parser.add_argument('--superpet-edit', action='store_true', help='apply a structural edit to selected text in SuperPET and store the result')
     args = parser.parse_args()
+    superpet_work = None
+    if args.superpet_edit:
+        if args.cwd or args.shell_command or args.menu_app:
+            parser.error('--superpet-edit opens its own test window in a temporary directory')
+        superpet_work = tempfile.TemporaryDirectory(prefix='a2-superpet-')
+        args.cwd = Path(superpet_work.name)
+        args.shell_command = 'SuperPET.Open note.txt'
+        (args.cwd / 'note.txt').write_bytes(b'alpha beta gamma\nalpha beta gamma\n')
+
     if args.shell_command and args.menu_app not in (None, 'shell'):
         parser.error('--shell-command requires --menu-app shell')
     if (args.expect_file or args.expect_log or args.expect_clipboard or args.expect_window) and not args.shell_command:
@@ -186,6 +196,7 @@ def main():
     backdrop_index = 0; backdrop_pixel_before = None; backdrop_sent_at = None
     three_d_drag_index = 0; three_d_drag_before = None; three_d_drag_sent_at = None
     three_d_drag_events = [(350, 300, 0), (350, 300, 4), (350, 450, 4), (350, 450, 0)]
+    superpet_index = 0
     radio_drag_index = 0; radio_drag_before = None; radio_drag_sent_at = None
     radio_drag_events = [(400, 300, 0), (400, 300, 1), (470, 320, 1), (470, 320, 0)]
     radio_wheel_index = 0; radio_wheel_before = None; radio_wheel_sent_at = None
@@ -198,6 +209,12 @@ def main():
                       (310, 560, 0), (310, 560, 1), (310, 560, 0)]
     station_event = 0; station_typed = 0; station_query = 'Test Two\n\n'
     tetris_start_sent = False; tetris_game_initial = None; tetris_game_flushes = 0; tetris_game_at = None
+    def click(x, y):
+        return [(x, y, 0), (x, y, 1), (x, y, 0)]
+
+    # Select the first line, enter the expression, click Edit, then Store.
+    superpet_actions = [(107, 202, 0), (107, 202, 1), (265, 202, 1), (265, 202, 0),
+                        *click(550, 173), *'x/beta/c/DELTA/', *click(800, 173), *click(310, 150)]
     shell_text = ('\n' if args.paste_shell_command or args.pie_shell_command else args.shell_command + '\n') if args.shell_command else ''
     shell_typed = 0; shell_done = None; shell_pasted = False; shell_window_initial = None; pet_click_index = 0
     pet_font_click_index = 0; pet_font_done = None
@@ -524,7 +541,31 @@ def main():
                 host.sendall(packet(117, mouse_tag, struct.pack('<I', len(event)) + event))
                 mouse_tag = None; pet_font_click_index += 1; next_event = time.monotonic() + 0.4
                 if pet_font_click_index == 3: pet_font_done = time.monotonic()
-            if shell_done is not None and time.monotonic() - shell_done > args.command_settle and (not args.pet_compile or pet_click_index == 3) and (not args.pet_text_size or (pet_font_done is not None and time.monotonic() - pet_font_done > 2)):
+            if args.superpet_edit and shell_done is not None and time.monotonic() - shell_done > 1:
+                if superpet_index == len(superpet_actions):
+                    try:
+                        saved = (args.cwd / 'note.txt').read_bytes()
+                    except FileNotFoundError:  # Store rotates the old file to a backup.
+                        continue
+                    if b'alpha DELTA gamma' in saved and saved.count(b'alpha beta gamma') == 1:
+                        print('PASS: selected source, entered command, clicked Edit and Store; only selected line changed')
+                        return
+                elif time.monotonic() >= next_event:
+                    action = superpet_actions[superpet_index]
+                    if isinstance(action, str) and keyboard_tag is not None:
+                        char = action.encode()
+                        event = b'r' + char + b'\0R' + char + b'\0'
+                        host.sendall(packet(117, keyboard_tag, struct.pack('<I', len(event)) + event))
+                        keyboard_tag = None
+                        superpet_index += 1
+                        next_event = time.monotonic() + 0.15
+                    elif isinstance(action, tuple) and mouse_tag is not None:
+                        event = ('m' + ''.join(f'{n:11d} ' for n in [*action, 10000 + superpet_index * 200])).encode()
+                        host.sendall(packet(117, mouse_tag, struct.pack('<I', len(event)) + event))
+                        mouse_tag = None
+                        superpet_index += 1
+                        next_event = time.monotonic() + (0.06 if superpet_index <= 5 else 0.2)
+            if not args.superpet_edit and shell_done is not None and time.monotonic() - shell_done > args.command_settle and (not args.pet_compile or pet_click_index == 3) and (not args.pet_text_size or (pet_font_done is not None and time.monotonic() - pet_font_done > 2)):
                 expected = args.expect_file
                 if expected is not None and not expected.is_absolute() and args.cwd:
                     expected = args.cwd / expected
@@ -623,6 +664,8 @@ def main():
         process.terminate()
         try: process.wait(timeout=2)
         except subprocess.TimeoutExpired: process.kill(); process.wait()
+        if superpet_work is not None:
+            superpet_work.cleanup()
         if geometry_work is not None:
             geometry_work.cleanup()
 

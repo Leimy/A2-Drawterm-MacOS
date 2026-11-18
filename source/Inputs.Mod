@@ -295,6 +295,7 @@ TYPE
 VAR
 	keyboard*, mouse*, pointer*: Group;
 	main*: Pointer;
+	WarpPointer*: PROCEDURE(x, y: SIZE); (** Optional absolute device-pixel pointer positioning. *)
 	oberonInput*: Plugins.Registry;
 	mouseFixer: MouseFixer;
 

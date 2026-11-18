@@ -1576,7 +1576,7 @@ TYPE
 		END Init;
 
 		PROCEDURE Handle*(VAR msg: Inputs.Message);
-		VAR dx, dy, dz, nx, ny, nz: SIZE; modifierFlags : SET; time: SIGNED32;
+		VAR dx, dy, dz, nx, ny, nz: SIZE; modifierFlags : SET; time: SIGNED32; target: Window;
 		BEGIN {EXCLUSIVE}
 			IF (msg IS Inputs.MouseMsg) THEN
 				WITH msg: Inputs.MouseMsg DO
@@ -1612,8 +1612,13 @@ TYPE
 					IF (DoubleClick > 0) & (msg.keys = {0}) & (prevKeys = {}) THEN
 						time := Kernel.GetTicks();
 						IF (time - lastTime < DoubleClick) & (ABS(nx-lastX) < 3) & (ABS(ny-lastY) <3) THEN
-							msg.keys := {1}; lastTime := time-DoubleClick;
-							inDoubleClick := TRUE;
+							IF view = NIL THEN RETURN END;
+							target := view.manager(WindowManager).GetPositionOwnerIntern(
+								ENTIER(view.range.l + nx * view.inffx), ENTIER(view.range.t + ny * view.inffy), view);
+							IF (target = NIL) OR ~(WM.FlagPhysicalButtons IN target.flags) THEN
+								msg.keys := {1}; inDoubleClick := TRUE
+							END;
+							lastTime := time-DoubleClick;
 						ELSE
 							lastTime := time; lastX := nx; lastY := ny;
 						END;

@@ -98,5 +98,9 @@
       <Properties><Caption>Interpreter shell</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
       <Standard:SystemCommand><Properties><ID>X</ID><CommandString>WMInterpreterShell.Open</CommandString></Properties></Standard:SystemCommand>
     </Standard:Button>
+    <Standard:Button>
+      <Properties><Caption>SuperPET</Caption><Alignment>2</Alignment><OnClickHandler>X Run</OnClickHandler></Properties>
+      <Standard:SystemCommand><Properties><ID>X</ID><CommandString>SuperPET.Open</CommandString></Properties></Standard:SystemCommand>
+    </Standard:Button>
   </Standard:Panel>
 </Standard:Panel>

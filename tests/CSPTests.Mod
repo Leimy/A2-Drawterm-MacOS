@@ -1,13 +1,14 @@
 MODULE CSPTests;
-IMPORT CSP, CSPDemo, Commands, Kernel, KernelLog, Streams, Strings;
+IMPORT CSP, CSPDemo, Commands, Kernel, KernelLog, Streams, Strings,
+    Numbers := CSPChannels(SIGNED64), Messages := CSPChannels(Message);
 
 TYPE
     Message = OBJECT VAR value: SIGNED32 END Message;
 
     Sender = OBJECT
-    VAR channel: CSP.IntegerChannel; cancel: CSP.Cancellation; value: SIGNED64;
+    VAR channel: Numbers.Channel; cancel: CSP.Cancellation; value: SIGNED64;
         result: SIGNED32; started, done: BOOLEAN;
-        PROCEDURE &New(channel: CSP.IntegerChannel; value: SIGNED64; cancel: CSP.Cancellation);
+        PROCEDURE &New(channel: Numbers.Channel; value: SIGNED64; cancel: CSP.Cancellation);
         BEGIN SELF.channel := channel; SELF.value := value; SELF.cancel := cancel END New;
         PROCEDURE Started;
         BEGIN {EXCLUSIVE} started := TRUE END Started;
@@ -22,9 +23,9 @@ TYPE
     END Sender;
 
     Receiver = OBJECT
-    VAR channel: CSP.IntegerChannel; cancel: CSP.Cancellation; value: SIGNED64;
+    VAR channel: Numbers.Channel; cancel: CSP.Cancellation; value: SIGNED64;
         result: SIGNED32; started, done: BOOLEAN;
-        PROCEDURE &New(channel: CSP.IntegerChannel; cancel: CSP.Cancellation);
+        PROCEDURE &New(channel: Numbers.Channel; cancel: CSP.Cancellation);
         BEGIN SELF.channel := channel; SELF.cancel := cancel; value := -99 END New;
         PROCEDURE Started;
         BEGIN {EXCLUSIVE} started := TRUE END Started;
@@ -39,10 +40,10 @@ TYPE
     END Receiver;
 
     ChoiceReceiver = OBJECT
-    VAR a, b: CSP.IntegerChannel; cancel: CSP.Cancellation;
-        offers: ARRAY 2 OF CSP.Offer; left, right: CSP.IntegerOffer;
+    VAR a, b: Numbers.Channel; cancel: CSP.Cancellation;
+        offers: ARRAY 2 OF CSP.Offer; left, right: Numbers.Offer;
         index: SIZE; result: SIGNED32; started, done: BOOLEAN;
-        PROCEDURE &New(a, b: CSP.IntegerChannel; cancel: CSP.Cancellation);
+        PROCEDURE &New(a, b: Numbers.Channel; cancel: CSP.Cancellation);
         BEGIN SELF.a := a; SELF.b := b; SELF.cancel := cancel END New;
         PROCEDURE Started;
         BEGIN {EXCLUSIVE} started := TRUE END Started;
@@ -58,9 +59,9 @@ TYPE
     END ChoiceReceiver;
 
     ChoiceSender = OBJECT
-    VAR a, b: CSP.IntegerChannel; offers: ARRAY 2 OF CSP.Offer;
+    VAR a, b: Numbers.Channel; offers: ARRAY 2 OF CSP.Offer;
         result: SIGNED32; index: SIZE; done: BOOLEAN;
-        PROCEDURE &New(a, b: CSP.IntegerChannel);
+        PROCEDURE &New(a, b: Numbers.Channel);
         BEGIN SELF.a := a; SELF.b := b END New;
         PROCEDURE Finished;
         BEGIN {EXCLUSIVE} done := TRUE END Finished;
@@ -87,8 +88,8 @@ TYPE
     END Collector;
 
     Producer = OBJECT
-    VAR channel: CSP.IntegerChannel; id: SIZE; done: BOOLEAN;
-        PROCEDURE &New(channel: CSP.IntegerChannel; id: SIZE);
+    VAR channel: Numbers.Channel; id: SIZE; done: BOOLEAN;
+        PROCEDURE &New(channel: Numbers.Channel; id: SIZE);
         BEGIN SELF.channel := channel; SELF.id := id END New;
         PROCEDURE Finish;
         BEGIN {EXCLUSIVE} done := TRUE END Finish;
@@ -101,8 +102,8 @@ TYPE
     END Producer;
 
     Consumer = OBJECT
-    VAR channel: CSP.IntegerChannel; collector: Collector; done: BOOLEAN;
-        PROCEDURE &New(channel: CSP.IntegerChannel; collector: Collector);
+    VAR channel: Numbers.Channel; collector: Collector; done: BOOLEAN;
+        PROCEDURE &New(channel: Numbers.Channel; collector: Collector);
         BEGIN SELF.channel := channel; SELF.collector := collector END New;
         PROCEDURE Finish;
         BEGIN {EXCLUSIVE} done := TRUE END Finish;
@@ -122,7 +123,7 @@ PROCEDURE Pass(CONST text: ARRAY OF CHAR);
 BEGIN KernelLog.String('CSP PASS '); KernelLog.String(text); KernelLog.Ln END Pass;
 
 PROCEDURE Rendezvous;
-VAR channel: CSP.IntegerChannel; sender: Sender; receiver: Receiver; value: SIGNED64;
+VAR channel: Numbers.Channel; sender: Sender; receiver: Receiver; value: SIGNED64;
 BEGIN
     NEW(channel, 0); ASSERT(channel.Capacity() = 0);
     ASSERT(channel.TrySend(12) = CSP.WouldBlock);
@@ -138,7 +139,7 @@ BEGIN
 END Rendezvous;
 
 PROCEDURE Buffered;
-VAR channel: CSP.IntegerChannel; value: SIGNED64; sender: Sender;
+VAR channel: Numbers.Channel; value: SIGNED64; sender: Sender;
 BEGIN
     NEW(channel, 2); ASSERT(channel.Capacity() = 2);
     ASSERT(channel.TrySend(10) = CSP.Success); ASSERT(channel.TrySend(20) = CSP.Success);
@@ -159,15 +160,15 @@ BEGIN
 END Buffered;
 
 PROCEDURE Objects;
-VAR channel: CSP.ObjectChannel; intChannel: CSP.IntegerChannel; msg: Message; value: ANY;
-    offers: ARRAY 2 OF CSP.Offer; integer: CSP.IntegerOffer; object: CSP.ObjectOffer; index: SIZE;
+VAR channel: Messages.Channel; intChannel: Numbers.Channel; msg: Message; value: Message;
+    offers: ARRAY 2 OF CSP.Offer; integer: Numbers.Offer; object: Messages.Offer; index: SIZE;
 BEGIN
     NEW(channel, 2); NEW(msg); msg.value := 42;
     ASSERT(channel.Send(msg, NIL) = CSP.Success); ASSERT(channel.Send(NIL, NIL) = CSP.Success);
     ASSERT(channel.TrySend(msg) = CSP.WouldBlock);
     Kernel.GC;
     ASSERT(channel.Receive(value, NIL) = CSP.Success); ASSERT(value = msg);
-    ASSERT(value(Message).value = 42);
+    ASSERT(value.value = 42);
     ASSERT(channel.Receive(value, NIL) = CSP.Success); ASSERT(value = NIL);
     NEW(intChannel, 0); integer := intChannel.ReceiveOffer(); object := channel.ReceiveOffer();
     offers[0] := integer; offers[1] := object;
@@ -179,8 +180,8 @@ BEGIN
 END Objects;
 
 PROCEDURE Choice;
-VAR a, b: CSP.IntegerChannel; offers: ARRAY 2 OF CSP.Offer;
-    left, right: CSP.IntegerOffer; index, i, selectedLeft, selectedRight: SIZE; value: SIGNED64;
+VAR a, b: Numbers.Channel; offers: ARRAY 2 OF CSP.Offer;
+    left, right: Numbers.Offer; index, i, selectedLeft, selectedRight: SIZE; value: SIGNED64;
 BEGIN
     NEW(a, 1); NEW(b, 1);
     ASSERT(a.TrySend(11) = CSP.Success); ASSERT(b.TrySend(22) = CSP.Success);
@@ -212,8 +213,38 @@ BEGIN
     Pass('atomic send/receive choice, one-shot offers and branch rotation')
 END Choice;
 
+(* One producer per input. Each Select can release just one sender. *)
+PROCEDURE ManyReceivers;
+CONST Inputs = 24;
+VAR channels: ARRAY Inputs OF Numbers.Channel; senders: ARRAY Inputs OF Sender;
+    typed: ARRAY Inputs OF Numbers.Offer; offers: ARRAY Inputs OF CSP.Offer;
+    seen: ARRAY Inputs OF BOOLEAN; i, round, index: SIZE; value: SIGNED64;
+BEGIN
+    FOR i := 0 TO Inputs-1 DO
+        NEW(channels[i], 0); NEW(senders[i], channels[i], i + 100, NIL)
+    END;
+    FOR round := 0 TO Inputs-1 DO
+        FOR i := 0 TO Inputs-1 DO
+            typed[i] := channels[i].ReceiveOffer(); offers[i] := typed[i]
+        END;
+        ASSERT(CSP.Select(offers, NIL, index) = CSP.Success);
+        ASSERT((index >= 0) & (index < Inputs)); ASSERT(~seen[index]); seen[index] := TRUE;
+        FOR i := 0 TO Inputs-1 DO
+            value := -1;
+            IF i = index THEN ASSERT(typed[i].Get(value)); ASSERT(value = i + 100)
+            ELSE ASSERT(~typed[i].Get(value)); ASSERT(value = -1) END
+        END
+    END;
+    FOR i := 0 TO Inputs-1 DO
+        senders[i].Join; ASSERT(senders[i].result = CSP.Success);
+        offers[i] := channels[i].ReceiveOffer()
+    END;
+    ASSERT(CSP.TrySelect(offers, NIL, index) = CSP.WouldBlock); ASSERT(index = -1);
+    Pass('24-way rendezvous receive selects every producer exactly once')
+END ManyReceivers;
+
 PROCEDURE SelfAndInvalid;
-VAR channel: CSP.IntegerChannel; offers: ARRAY 2 OF CSP.Offer; empty: ARRAY 0 OF CSP.Offer;
+VAR channel: Numbers.Channel; offers: ARRAY 2 OF CSP.Offer; empty: ARRAY 0 OF CSP.Offer;
     index: SIZE; value: SIGNED64;
 BEGIN
     NEW(channel, 0); offers[0] := channel.SendOffer(123); offers[1] := channel.ReceiveOffer();
@@ -227,7 +258,7 @@ BEGIN
 END SelfAndInvalid;
 
 PROCEDURE CancellationAndClose;
-VAR channel, other: CSP.IntegerChannel; cancel: CSP.Cancellation;
+VAR channel, other: Numbers.Channel; cancel: CSP.Cancellation;
     sender: Sender; receiver: Receiver; choice: ChoiceReceiver; timer: Kernel.Timer;
     value: SIGNED64; offers: ARRAY 1 OF CSP.Offer; index: SIZE;
 BEGIN
@@ -266,8 +297,8 @@ BEGIN
 END CancellationAndClose;
 
 PROCEDURE CompetingChoices;
-VAR a, b: CSP.IntegerChannel; cancel: CSP.Cancellation; sa, sb: Sender;
-    offers: ARRAY 2 OF CSP.Offer; left, right: CSP.IntegerOffer; index, i: SIZE; value: SIGNED64;
+VAR a, b: Numbers.Channel; cancel: CSP.Cancellation; sa, sb: Sender;
+    offers: ARRAY 2 OF CSP.Offer; left, right: Numbers.Offer; index, i: SIZE; value: SIGNED64;
     receiver: ChoiceReceiver; chooser: ChoiceSender;
 BEGIN
     FOR i := 0 TO 49 DO
@@ -318,7 +349,7 @@ BEGIN
 END CompetingChoices;
 
 PROCEDURE Contention(capacity: SIZE);
-VAR channel: CSP.IntegerChannel; collector: Collector;
+VAR channel: Numbers.Channel; collector: Collector;
     producers: ARRAY 8 OF Producer; consumers: ARRAY 3 OF Consumer; i: SIZE;
 BEGIN
     NEW(channel, capacity); NEW(collector);
@@ -349,7 +380,7 @@ END DemoOutput;
 
 PROCEDURE Run*(context: Commands.Context);
 BEGIN
-    Rendezvous; Buffered; Objects; Choice; SelfAndInvalid; CancellationAndClose; CompetingChoices;
+    Rendezvous; Buffered; Objects; Choice; ManyReceivers; SelfAndInvalid; CancellationAndClose; CompetingChoices;
     Contention(0); Contention(1); Contention(8); DemoOutput;
     KernelLog.String('CSP TESTS PASS'); KernelLog.Ln
 END Run;

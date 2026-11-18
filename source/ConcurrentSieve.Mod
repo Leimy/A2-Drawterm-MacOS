@@ -4,7 +4,7 @@ MODULE ConcurrentSieve;
     Each discovered prime owns an active filter object.  Candidates flow
     concurrently through the resulting pipeline. *)
 
-IMPORT Commands, Kernel, KernelLog;
+IMPORT Commands, Kernel, Streams;
 
 TYPE
 	Filter = OBJECT
@@ -33,7 +33,7 @@ TYPE
 				full := FALSE
 			END;
 			IF current = 0 THEN
-				IF next # NIL THEN next.Put(0) ELSE Report END;
+				IF next # NIL THEN next.Put(0) END;
 				EXIT
 			ELSIF current MOD prime # 0 THEN
 				IF next = NIL THEN
@@ -67,20 +67,26 @@ BEGIN {EXCLUSIVE}
 	INC(nofPrimes)
 END AddPrime;
 
-PROCEDURE Report;
+PROCEDURE Report(out: Streams.Writer);
 VAR i: SIGNED32;
 BEGIN
-	KernelLog.String("Active-object sieve through "); KernelLog.Int(runLimit, 0);
-	KernelLog.String(": "); KernelLog.Int(nofPrimes, 0);
-	KernelLog.String(" primes in ");
-	KernelLog.Int(Kernel.GetTicks() - startTicks, 0); KernelLog.String(" ms");
-	KernelLog.Ln;
+	out.String("Active-object sieve through "); out.Int(runLimit, 0);
+	out.String(": "); out.Int(nofPrimes, 0);
+	out.String(" primes in ");
+	out.Int(Kernel.GetTicks() - startTicks, 0); out.String(" ms");
+	out.Ln;
 	FOR i := 0 TO nofPrimes - 1 DO
-		KernelLog.Int(primes[i], 0);
-		IF i + 1 < nofPrimes THEN KernelLog.Char(" ") END
+		out.Int(primes[i], 0);
+		IF i + 1 < nofPrimes THEN out.Char(" ") END
 	END;
-	KernelLog.Ln
+	out.Ln
 END Report;
+
+PROCEDURE WaitForFilters;
+BEGIN {EXCLUSIVE}
+	AWAIT(activeFilters = 0)
+END WaitForFilters;
+
 
 PROCEDURE Run*(context: Commands.Context); (** [limit] ~ *)
 VAR limit, n: SIGNED32; first: Filter;
@@ -102,13 +108,16 @@ BEGIN
 	runLimit := limit; startTicks := Kernel.GetTicks();
 	NEW(first, 2);
 	FOR n := 3 TO limit BY 2 DO first.Put(n) END;
-	first.Put(0)
+	first.Put(0);
+	WaitForFilters;
+	Report(context.out);
+	context.out.Update;
 END Run;
 
 PROCEDURE Demo*;
 VAR context: Commands.Context;
 BEGIN
-	NEW(context, NIL, NIL, NIL, NIL, NIL);
+	context := Commands.GetContext();
 	demoLimit := 50;
 	Run(context)
 END Demo;

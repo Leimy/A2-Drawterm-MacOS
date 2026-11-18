@@ -414,6 +414,38 @@ test -s NativeDesktopHello.GofAa
 
 The last command should print `native A2 desktop compiler demo ran`.
 
+### SuperPET
+
+Choose **Development → SuperPET** or enter `SuperPET.Open filename.Mod` in BlueShell.
+In the source, split view, or scratch pane, right-click a module identifier such as
+`CSPDemo` to open its source in a tab. Right-clicking another identifier selects
+its next occurrence, wrapping at the end. SuperPET uses PET's Compile button,
+diagnostics, and text size controls. **Development → PET editor** opens classic PET.
+
+To launch a compiled module with arguments, type `CSPDemo.Run 100 ~` in scratch
+and middle-click **CSPDemo.Run**. SuperPET supplies the command's arguments and
+shows output written to `context.out` in the page log. Middle-clicking an exported
+command such as `Run*` in the Program Structure tree launches it with empty
+arguments and sends its default output to the kernel log.
+
+**Structural Edit.** Select text in the source or split view, enter a command in
+the field beside **Text +**, and press Return or click **Edit**. A comma addresses
+the whole buffer. A dot (or no address) uses the selection, or the caret if the
+selection is empty. Output and errors appear in the page log. Store saves the source.
+
+| Command | Effect |
+| --- | --- |
+| `,x/TODO/p` | Print every match for TODO in the file. |
+| `x/beta/c/DELTA/` | Replace each beta in the selection with DELTA. |
+| `,x/.*\n/g/TODO/x/[ \t]+$/d` | Trim trailing spaces and tabs from newline-terminated lines containing TODO. |
+
+This single-buffer subset supports nested **x** (each match), **g** (if a match
+exists), and **v** (if no match exists). Finish with **p** (print), **d** (delete),
+**c/text/** (change), **i/text/** (insert before), or **a/text/** (append after).
+Patterns use Darwin's extended regular expressions. Use `\n` for newline,
+`\t` for tab, and `\/` for a slash. Changes use PET's ordinary undo history,
+so undoing a batch can take multiple presses.
+
 ### CSP communication for active objects
 
 The current source build includes `source/CSP.Mod`, a shared coordinator using
@@ -432,8 +464,10 @@ variables and offer results are checked against the same type. Records, fixed
 arrays, and object references are supported. Records and arrays are copied when
 a send or send offer is created; embedded object references remain shared.
 All instances use the same CSP coordinator, so choices can span payload types.
-No language or runtime changes are needed. The earlier `CSP.IntegerChannel`
-and `CSP.ObjectChannel` interfaces remain available for compatibility.
+The coordinator moves opaque `CSP.Packet` references. Only the generic channel
+packs and unpacks a value of its payload type. Migrate earlier integer and
+object channels to `CSPChannels(SIGNED64)` and `CSPChannels(YourObjectType)`
+respectively, and recompile their clients.
 
 `NEW(channel, 0)` creates an unbuffered rendezvous: a successful send waits for
 an actual receiver. A positive capacity creates a bounded FIFO; a successful
@@ -456,7 +490,7 @@ recipe and the native compiler extras recipe. Fox includes the specialization's
 code in the importing module's object file; there is no standalone template
 object file to load.
 
-To update an existing session that loaded the earlier, nongeneric demo, run
+To update an existing session that loaded an earlier CSP build, run
 these commands separately in BlueShell (adjust the checkout path if needed):
 
 ```text
@@ -514,7 +548,7 @@ BEGIN
 END ReceiveEither;
 ```
 
-Send and receive offers from different generic instances, and legacy offers,
+Send and receive offers from different generic instances
 may be mixed in the same `ARRAY OF CSP.Offer`. Typed offers are normalized before
 entering the coordinator; their typed `Get` methods preserve the result type.
 Exactly one branch commits; losing branches are withdrawn atomically. Two
@@ -524,6 +558,8 @@ or `Closed`, the returned index identifies the branch; on `Cancelled`,
 object, or previously used offer is `Invalid`. Every accepted choice consumes
 all its offers, including after cancellation or `WouldBlock`; create new offers
 for the next choice. `Get` succeeds only on the selected successful receive.
+In a receive loop, remove a drained channel after its branch returns `Closed`.
+It stays ready while closed. Exit the loop when the last input closes.
 
 The first implementation uses one passive coordinator monitor and rotates the
 starting branch of successive multi-branch choices. This avoids fixed branch
@@ -542,7 +578,7 @@ python3 scripts/test-a2-csp.py --repeat 20
 ```
 
 They compile into a temporary directory and exercise rendezvous, FIFO/backpressure,
-heterogeneous and bilateral choices across generic instances, cancellation,
+24-way receive, heterogeneous and bilateral choices across generic instances, cancellation,
 close/drain, typed record/array copying, GC, invalid offers, and contention with
 eight producers and three consumers. Five negative compilation cases check
 that incorrect payloads, result variables and channel types are rejected. Each

@@ -8,7 +8,7 @@ CONST
     Sending = 0; Receiving = 1;
 
 TYPE
-    Payload = RECORD number: SIGNED64; reference: ANY END;
+    Packet* = OBJECT END Packet;
 
     Cancellation* = OBJECT
     VAR cancelled: BOOLEAN;
@@ -21,7 +21,7 @@ TYPE
     Channel* = OBJECT
     VAR
         capacity, head, count: SIZE;
-        buffer: POINTER TO ARRAY OF Payload;
+        buffer: POINTER TO ARRAY OF Packet;
         closed: BOOLEAN;
         PROCEDURE &New*(size: SIZE);
         BEGIN
@@ -34,93 +34,51 @@ TYPE
         BEGIN RETURN ChannelClosed(SELF) END IsClosed;
         PROCEDURE Capacity*(): SIZE;
         BEGIN RETURN capacity END Capacity;
+        PROCEDURE SendOffer*(value: Packet): PacketOffer;
+        VAR offer: PacketOffer;
+        BEGIN
+            NEW(offer); offer.channel := SELF; offer.direction := Sending;
+            offer.value := value; RETURN offer
+        END SendOffer;
+        PROCEDURE ReceiveOffer*(): PacketOffer;
+        VAR offer: PacketOffer;
+        BEGIN
+            NEW(offer); offer.channel := SELF; offer.direction := Receiving; RETURN offer
+        END ReceiveOffer;
+        PROCEDURE Send*(value: Packet; cancel: Cancellation): SIGNED32;
+        BEGIN RETURN One(SendOffer(value), cancel, TRUE) END Send;
+        PROCEDURE Receive*(VAR value: Packet; cancel: Cancellation): SIGNED32;
+        VAR offer: PacketOffer; result: SIGNED32;
+        BEGIN
+            offer := ReceiveOffer(); result := One(offer, cancel, TRUE);
+            IF result = Success THEN value := offer.value END;
+            RETURN result
+        END Receive;
+        PROCEDURE TrySend*(value: Packet): SIGNED32;
+        BEGIN RETURN One(SendOffer(value), NIL, FALSE) END TrySend;
+        PROCEDURE TryReceive*(VAR value: Packet): SIGNED32;
+        VAR offer: PacketOffer; result: SIGNED32;
+        BEGIN
+            offer := ReceiveOffer(); result := One(offer, NIL, FALSE);
+            IF result = Success THEN value := offer.value END;
+            RETURN result
+        END TryReceive;
     END Channel;
 
     (** Offers are one-shot intentions. Unselected sends have no effect.
         Use fresh offers for each Select/TrySelect, including after WouldBlock. *)
     Offer* = OBJECT
-    VAR channel: Channel; direction: SIGNED32; value: Payload; used, received: BOOLEAN;
+    VAR channel: Channel; direction: SIGNED32; value: Packet; used, received: BOOLEAN;
         (** Typed adapters return their concrete transport offer. Select calls
             this before entering the coordinator monitor; never under its lock. *)
         PROCEDURE GetOffer*(): Offer;
         BEGIN RETURN SELF END GetOffer;
     END Offer;
 
-    IntegerOffer* = OBJECT(Offer)
-        PROCEDURE Get*(VAR value: SIGNED64): BOOLEAN;
-        BEGIN RETURN ReadInteger(SELF, value) END Get;
-    END IntegerOffer;
-
-    ObjectOffer* = OBJECT(Offer)
-        PROCEDURE Get*(VAR value: ANY): BOOLEAN;
-        BEGIN RETURN ReadObject(SELF, value) END Get;
-    END ObjectOffer;
-
-    IntegerChannel* = OBJECT(Channel)
-        PROCEDURE SendOffer*(value: SIGNED64): IntegerOffer;
-        VAR offer: IntegerOffer;
-        BEGIN
-            NEW(offer); offer.channel := SELF; offer.direction := Sending;
-            offer.value.number := value; RETURN offer
-        END SendOffer;
-        PROCEDURE ReceiveOffer*(): IntegerOffer;
-        VAR offer: IntegerOffer;
-        BEGIN
-            NEW(offer); offer.channel := SELF; offer.direction := Receiving; RETURN offer
-        END ReceiveOffer;
-        PROCEDURE Send*(value: SIGNED64; cancel: Cancellation): SIGNED32;
-        BEGIN RETURN One(SendOffer(value), cancel, TRUE) END Send;
-        PROCEDURE Receive*(VAR value: SIGNED64; cancel: Cancellation): SIGNED32;
-        VAR offer: IntegerOffer; result: SIGNED32;
-        BEGIN
-            offer := ReceiveOffer(); result := One(offer, cancel, TRUE);
-            IF result = Success THEN value := offer.value.number END;
-            RETURN result
-        END Receive;
-        PROCEDURE TrySend*(value: SIGNED64): SIGNED32;
-        BEGIN RETURN One(SendOffer(value), NIL, FALSE) END TrySend;
-        PROCEDURE TryReceive*(VAR value: SIGNED64): SIGNED32;
-        VAR offer: IntegerOffer; result: SIGNED32;
-        BEGIN
-            offer := ReceiveOffer(); result := One(offer, NIL, FALSE);
-            IF result = Success THEN value := offer.value.number END;
-            RETURN result
-        END TryReceive;
-    END IntegerChannel;
-
-    (** Object references, including NIL, are transmitted without copying.
-        Wrap this class to give application protocols specific payload types. *)
-    ObjectChannel* = OBJECT(Channel)
-        PROCEDURE SendOffer*(value: ANY): ObjectOffer;
-        VAR offer: ObjectOffer;
-        BEGIN
-            NEW(offer); offer.channel := SELF; offer.direction := Sending;
-            offer.value.reference := value; RETURN offer
-        END SendOffer;
-        PROCEDURE ReceiveOffer*(): ObjectOffer;
-        VAR offer: ObjectOffer;
-        BEGIN
-            NEW(offer); offer.channel := SELF; offer.direction := Receiving; RETURN offer
-        END ReceiveOffer;
-        PROCEDURE Send*(value: ANY; cancel: Cancellation): SIGNED32;
-        BEGIN RETURN One(SendOffer(value), cancel, TRUE) END Send;
-        PROCEDURE Receive*(VAR value: ANY; cancel: Cancellation): SIGNED32;
-        VAR offer: ObjectOffer; result: SIGNED32;
-        BEGIN
-            offer := ReceiveOffer(); result := One(offer, cancel, TRUE);
-            IF result = Success THEN value := offer.value.reference END;
-            RETURN result
-        END Receive;
-        PROCEDURE TrySend*(value: ANY): SIGNED32;
-        BEGIN RETURN One(SendOffer(value), NIL, FALSE) END TrySend;
-        PROCEDURE TryReceive*(VAR value: ANY): SIGNED32;
-        VAR offer: ObjectOffer; result: SIGNED32;
-        BEGIN
-            offer := ReceiveOffer(); result := One(offer, NIL, FALSE);
-            IF result = Success THEN value := offer.value.reference END;
-            RETURN result
-        END TryReceive;
-    END ObjectChannel;
+    PacketOffer* = OBJECT(Offer)
+        PROCEDURE ReadPacket*(VAR value: Packet): BOOLEAN;
+        BEGIN RETURN ReadReceived(SELF, value) END ReadPacket;
+    END PacketOffer;
 
     Choice = POINTER TO RECORD
         next: Choice;
@@ -170,7 +128,7 @@ BEGIN
                         Finish(choice, index, Closed); progress := TRUE
                     ELSIF (offer.direction = Receiving) & (channel.count > 0) THEN
                         offer.value := channel.buffer[channel.head];
-                        channel.buffer[channel.head].reference := NIL;
+                        channel.buffer[channel.head] := NIL;
                         channel.head := (channel.head + 1) MOD channel.capacity; DEC(channel.count);
                         Finish(choice, index, Success); progress := TRUE
                     ELSIF (offer.direction = Sending) & (channel.count < channel.capacity) THEN
@@ -276,16 +234,10 @@ END CloseChannel;
 PROCEDURE ChannelClosed(channel: Channel): BOOLEAN;
 BEGIN {EXCLUSIVE} RETURN channel.closed END ChannelClosed;
 
-PROCEDURE ReadInteger(offer: IntegerOffer; VAR value: SIGNED64): BOOLEAN;
+PROCEDURE ReadReceived(offer: Offer; VAR value: Packet): BOOLEAN;
 BEGIN {EXCLUSIVE}
     IF ~offer.received THEN RETURN FALSE END;
-    value := offer.value.number; RETURN TRUE
-END ReadInteger;
-
-PROCEDURE ReadObject(offer: ObjectOffer; VAR value: ANY): BOOLEAN;
-BEGIN {EXCLUSIVE}
-    IF ~offer.received THEN RETURN FALSE END;
-    value := offer.value.reference; RETURN TRUE
-END ReadObject;
+    value := offer.value; RETURN TRUE
+END ReadReceived;
 
 END CSP.

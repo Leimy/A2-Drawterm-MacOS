@@ -19,6 +19,7 @@ CONST
 	FlagStorable*=12; (* window storable*)
 	FlagDirty* = 13; (*see WMComponents *);
 	FlagMaximize* = 14; (** The window offers a maximize/restore button; only frame windows *)
+	FlagPhysicalButtons* = 17; (** Deliver double left clicks without emulating the middle button. *)
 (*	FlagHelp* = 15; (** The window offers a help button; only frame windows *) *)
 (*	FlagMenu* = 16; (** The window offers a menu button; only frame windows *) *)
 
