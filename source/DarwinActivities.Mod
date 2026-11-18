@@ -1,13 +1,13 @@
 MODULE DarwinActivities;
 (** Branch experiment. A scheduler and its activities are confined to the
     A2 process that constructs them. Park and Yield can be called at depth. *)
-IMPORT SYSTEM, Glue, Unix, Objects, Heaps, Machine;
+IMPORT SYSTEM, Glue, Unix, Objects, Heaps, Machine, Modules;
 
 TYPE
 	Activity* = OBJECT
 	VAR owner: Scheduler; next: Activity; fiber: ADDRESS; queued: BOOLEAN;
 		waitNext: Activity; guard: Objects.ActivityCondition; frame: ADDRESS;
-		context: ANY; subject: Objects.ActivitySelf;
+		children: BOOLEAN; context: ANY; subject: Objects.ActivitySelf;
 
 		PROCEDURE Run*;
 		BEGIN HALT(101) END Run;
@@ -40,7 +40,7 @@ TYPE
 	WaitQueue = RECORD first, last: Activity END;
 
 	Monitor = OBJECT
-	VAR scheduler: Scheduler; holder: Activity; guards, entrants: WaitQueue;
+	VAR bound: Modules.Module; nextBound: Monitor; scheduler: Scheduler; holder: Activity; guards, entrants: WaitQueue;
 
 		PROCEDURE Append(VAR q: WaitQueue; a: Activity);
 		BEGIN
@@ -83,7 +83,7 @@ TYPE
 	END Monitor;
 
 	Scheduler* = OBJECT
-	VAR worker: Objects.Process; pool: ADDRESS; head, tail, running: Activity; live-: SIZE;
+	VAR worker: Objects.Process; pool: ADDRESS; head, tail, running: Activity; live-, adopted-: SIZE; bindings: Monitor;
 
 		PROCEDURE &Init*;
 		BEGIN
@@ -104,6 +104,22 @@ TYPE
 			ASSERT(a.fiber # 0); a.owner := SELF; a.context := Objects.CurrentContext(); INC(live); a.Wake
 		END Start;
 
+		(* Run a command and recursively enroll ordinary NEW active bodies during
+		   its dispatches. Unrelated work on the host still uses native threads. *)
+		PROCEDURE StartTree*(a: Activity);
+		BEGIN a.children := TRUE; Start(a) END StartTree;
+
+		(* Use this only when the workload owns all calls to this module monitor
+		   until Close restores ordinary locking. *)
+		PROCEDURE BindModule*(obj: Modules.Module);
+		VAR m: Monitor;
+		BEGIN
+			ASSERT((worker = Objects.CurrentProcess()) & (running = NIL) & (pool # 0) & (obj # NIL));
+			NEW(m); m.scheduler := SELF; m.bound := obj;
+			Objects.BindActivityMonitor(obj, m.Call, TRUE);
+			m.nextBound := bindings; bindings := m
+		END BindModule;
+
 		(* The next ordinary active object constructed on this worker is enrolled.
 		   Its monitor may only be entered by activities dispatched by this scheduler. *)
 		PROCEDURE NextActive*;
@@ -116,7 +132,7 @@ TYPE
 		VAR a: BodyActivity; m: Monitor;
 		BEGIN
 			NEW(m); m.scheduler := SELF; NEW(a); a.subject := obj; a.body := body;
-			Start(a); RETURN m.Call
+			a.children := (running # NIL) & running.children; Start(a); INC(adopted); RETURN m.Call
 		END Adopt;
 
 		PROCEDURE YieldCurrent*;
@@ -130,7 +146,8 @@ TYPE
 			head := a.next; IF head = NIL THEN tail := NIL END;
 			a.next := NIL; a.queued := FALSE; running := a;
 			hostContext := Objects.CurrentContext(); Objects.SetContext(a.context); worker.activitySelf := a.subject;
-			done := resume(a.fiber) # 0;
+			IF a.children THEN worker.childActivity := Adopt END;
+			done := resume(a.fiber) # 0; worker.childActivity := NIL;
 			worker.activitySelf := NIL; a.context := Objects.CurrentContext(); Objects.SetContext(hostContext);
 			IF done THEN
 				ASSERT(~a.queued);
@@ -143,6 +160,9 @@ TYPE
 		PROCEDURE Close*;
 		BEGIN
 			ASSERT((worker = Objects.CurrentProcess()) & (live = 0) & (pool # 0) & (worker.nextActivity = NIL));
+			WHILE bindings # NIL DO
+				Objects.BindActivityMonitor(bindings.bound, bindings.Call, FALSE); bindings := bindings.nextBound
+			END;
 			Machine.Acquire(Machine.Heaps); worker.stackScanner := NIL; close(pool); pool := 0; Machine.Release(Machine.Heaps)
 		END Close;
 	END Scheduler;

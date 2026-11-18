@@ -245,7 +245,7 @@ TYPE
 		gcContext: GCContext;
 		#IF LIGHTWEIGHT THEN
 		stackScanner*: StackScanner;
-		nextActivity*: ActivityStart;
+		nextActivity*, childActivity*: ActivityStart;
 		activitySelf*: ActivitySelf;
 		#END
 
@@ -489,6 +489,24 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 	END InitProtHeader;
 
 
+	#IF LIGHTWEIGHT THEN
+	(* The caller owns this protected object for the entire binding scope,
+	   including these transitions. Keep its native mutex for subsequent use. *)
+	PROCEDURE BindActivityMonitor*(obj: Modules.Module; monitor: MonitorCall; install: BOOLEAN);
+	VAR hdr {UNTRACED}: ObjectHeader; lock: LockT;
+	BEGIN
+		SYSTEM.GET(SYSTEM.VAL(ADDRESS,obj) + Heaps.HeapBlockOffset, hdr);
+		IF hdr.lock = NIL THEN InitProtHeader(hdr) END;
+		lock := SYSTEM.VAL(LockT, hdr.lock);
+		ASSERT(lock.mtx # 0);
+		Unix.MtxLock(lock.mtx);
+		ASSERT((hdr.lockedBy = NIL) & (hdr.awaitingCond.head = NIL));
+		IF install THEN ASSERT(lock.monitor = NIL); lock.monitor := monitor
+		ELSE ASSERT(lock.monitor = monitor); lock.monitor := NIL END;
+		Unix.MtxUnlock(lock.mtx)
+	END BindActivityMonitor;
+	#END
+
 	PROCEDURE CreateProcess*( body: Body;  priority: INTEGER;  flags: SET;  obj: ProtectedObject );
 	VAR p: Process;  hdr{UNTRACED}: ObjectHeader;
 	#IF LIGHTWEIGHT THEN
@@ -497,8 +515,9 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 	BEGIN
 		#IF LIGHTWEIGHT THEN
 		p := CurrentProcess();
-		IF (p # NIL) & (p.nextActivity # NIL) THEN
+		IF (p # NIL) & ((p.nextActivity # NIL) OR (p.childActivity # NIL)) THEN
 			start := p.nextActivity; p.nextActivity := NIL;
+			IF start = NIL THEN start := p.childActivity END;
 			ASSERT((priority = 0) & (flags = {}));
 			SYSTEM.GET(SYSTEM.VAL(ADDRESS,obj) + Heaps.HeapBlockOffset, hdr);
 			ASSERT(hdr.lock = NIL); (* enroll a fresh, unpublished monitor *)

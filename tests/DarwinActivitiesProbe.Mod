@@ -1,5 +1,5 @@
 MODULE DarwinActivitiesProbe;
-IMPORT A := DarwinActivities, Commands, Kernel, Unix, Objects;
+IMPORT A := DarwinActivities, Commands, Kernel, Unix, Objects, Modules, ConcurrentSieve, CSPDemo, CSP;
 
 CONST BatchSize = 256;
 TYPE
@@ -122,6 +122,39 @@ BEGIN
 	ASSERT((scheduler.live = 0) & (exchange.consumed = 1000) & (exchange.value = 0)); scheduler.Close;
 	context.out.String("PASS two ACTIVE bodies, contended EXCLUSIVE and 1000 AWAIT exchanges on one pthread"); context.out.Ln
 END CheckMonitors;
+
+TYPE
+	SieveCommand = OBJECT(A.Activity)
+	VAR context: Commands.Context; channels, finished: BOOLEAN;
+		PROCEDURE Run*;
+		BEGIN
+			IF channels THEN CSPDemo.Run(context) ELSE ConcurrentSieve.Run(context) END;
+			finished := TRUE
+		END Run;
+	END SieveCommand;
+
+PROCEDURE RunTree(context: Commands.Context; channels: BOOLEAN);
+VAR scheduler: A.Scheduler; command: SieveCommand; module: Modules.Module; channel: CSP.Channel;
+	res: INTEGER; msg: ARRAY 128 OF CHAR;
+BEGIN
+	IF channels THEN module := Modules.ThisModule("CSP", res, msg)
+	ELSE module := Modules.ThisModule("ConcurrentSieve", res, msg) END;
+	ASSERT(module # NIL);
+	NEW(scheduler); scheduler.BindModule(module);
+	NEW(command); command.context := context; command.channels := channels; scheduler.StartTree(command);
+	WHILE scheduler.Dispatch() DO END;
+	ASSERT(command.finished & (scheduler.live = 0)); scheduler.Close;
+	IF channels THEN
+		NEW(channel, 0); ASSERT(channel.Close()); ASSERT(channel.IsClosed()) (* back on the host *)
+	END;
+	context.out.String("Joined lightweight filter bodies: "); context.out.Int(scheduler.adopted, 0); context.out.Ln
+END RunTree;
+
+PROCEDURE Mailboxes*(context: Commands.Context);
+BEGIN RunTree(context, FALSE) END Mailboxes;
+
+PROCEDURE Channels*(context: Commands.Context);
+BEGIN RunTree(context, TRUE) END Channels;
 
 PROCEDURE Run*(context: Commands.Context);
 VAR trial: Trial; first: Filter; probe: GCProbe; limit: SIGNED32; value, factor, expected: SIZE; composite: POINTER TO ARRAY OF BOOLEAN;
