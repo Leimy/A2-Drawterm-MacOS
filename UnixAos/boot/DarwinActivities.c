@@ -115,6 +115,16 @@ void activity_close(Pool *p)
     free(p);
 }
 
+/* Bound trap unwinding to the stack which contains the interrupted SP. */
+uintptr_t activity_stack_limit(Pool *p, uintptr_t sp)
+{
+    Fiber *f = p->current;
+    if (!f) return 0;
+    uintptr_t low = (uintptr_t)f->mapping + f->guard;
+    uintptr_t high = (uintptr_t)f->mapping + f->total;
+    return sp >= low && sp < high ? high : 0;
+}
+
 /* Called with the A2 heaps lock and the worker stopped (or collecting
    synchronously). The host's saved SP is also valid during a fiber GC. */
 void activity_roots(Pool *p, uintptr_t sp, uintptr_t bottom, Visit visit)

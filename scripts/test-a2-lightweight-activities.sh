@@ -24,8 +24,22 @@ export OBERON_CORE="$seed/DarwinAosCompilerAa"
 sed '1d;s/AMD64.Builtins.Mod .* Unix.Objects.Mod/Unix.Objects.Mod/;s/--define=UNIX,AARCH64,DESKTOP /--define=UNIX,AARCH64,DESKTOP,LIGHTWEIGHT /' \
     "$repo/build/DarwinAArch64Compiler.txt" > core.txt
 
+# The loader handles SIGALRM itself. Keep the deadline in its parent.
+with_deadline() {
+    perl -e '
+        my $seconds = shift;
+        my $child = fork();
+        defined $child or die $!;
+        if (!$child) { exec @ARGV or die $! }
+        $SIG{ALRM} = sub { kill "KILL", $child };
+        alarm $seconds;
+        waitpid($child, 0);
+        exit($? == 0 ? 0 : 1);
+    ' "$@"
+}
+
 run() {
-    if ! perl -e 'alarm shift; exec @ARGV or die $!' "$run_timeout" ./OberonLoader "$@" > run.log 2>&1 ||
+    if ! with_deadline "$run_timeout" ./OberonLoader "$@" > run.log 2>&1 ||
        grep -Eq 'error:|native signal|Command not successful|Trap [0-9]+' run.log; then
         cat run.log >&2
         exit 1
@@ -97,3 +111,12 @@ run do "ConcurrentSieve.Run $limit"
 grep -F "Active-object sieve through $limit:" run.log
 run do 'CSPDemo.Run 1000'
 grep -F 'CSP sieve finished; all filter activities joined' run.log
+
+export AOSCONFIG="$base_config ActivityWorkers 1 ActivityCommands DarwinActivitiesProbe.TrapWorker:DarwinActivitiesProbe,DarwinActivitiesProbe.RecordWorker:DarwinActivitiesProbe"
+if ! with_deadline 20 ./OberonLoader do DarwinActivitiesProbe.CheckRecovery > trap.log 2>&1 ||
+   [ "$(grep -ac 'Trap 5[.]73 ' trap.log)" != 2 ] ||
+   [ "$(grep -ac 'native signal' trap.log)" != 2 ] ||
+   ! grep -aF 'PASS pooled HALT returned CommandTrapped' trap.log; then
+    cat trap.log >&2
+    exit 1
+fi

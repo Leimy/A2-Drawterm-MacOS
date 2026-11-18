@@ -245,6 +245,7 @@ TYPE
 		gcContext: GCContext;
 		#IF LIGHTWEIGHT THEN
 		stackScanner*: StackScanner;
+		stackLimit*: PROCEDURE {DELEGATE}(sp: ADDRESS): ADDRESS;
 		nextActivity*, childActivity*: ActivityStart;
 		checkpointDue*: EventHandler; checkpointBudget*: SIZE;
 		activitySelf*: ActivitySelf;

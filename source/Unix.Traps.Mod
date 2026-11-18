@@ -176,7 +176,7 @@ VAR
 
 	PROCEDURE Trap( sig: SIGNED32;  mc: Unix.Mcontext);
 	VAR
-		pc, sp, bp, instruction: ADDRESS;
+		pc, sp, bp, instruction, bottom: ADDRESS;
 		trapno: SIGNED32;
 		process: Objects.Process;
 		handler: ExceptionHandler;
@@ -278,8 +278,14 @@ VAR
 			#END;
 
 		IF process # NIL THEN
-			Reflection.StackTraceBack( w, pc, bp, sp, Objects.GetStackBottom( process ), TRUE, FALSE );
-			SearchExceptionHandler( process, mc, handler );
+			bottom := 0;
+			#IF LIGHTWEIGHT THEN
+			IF process.stackLimit # NIL THEN bottom := process.stackLimit(sp) END;
+			#END
+			IF bottom = 0 THEN bottom := Objects.GetStackBottom(process)
+			ELSE DEC(bottom, 2*AddrSize) (* last complete saved FP/LR pair *) END;
+			Reflection.StackTraceBack( w, pc, bp, sp, bottom, TRUE, FALSE );
+			SearchExceptionHandler( bottom, mc, handler );
 		ELSE
 			(* avoid recusive trap in case of faulty module Objects *)
 			Reflection.StackTraceBack( w, pc, bp, sp, sp+512, TRUE, FALSE );
@@ -313,7 +319,7 @@ VAR
 		END;
 	END UnlockOberon;
 
-	PROCEDURE SearchExceptionHandler( process: Objects.Process;  mc: Unix.Mcontext;  VAR handler: ExceptionHandler );
+	PROCEDURE SearchExceptionHandler( bottom: ADDRESS;  mc: Unix.Mcontext;  VAR handler: ExceptionHandler );
 	VAR entry, fp, sp, pc: ADDRESS;
 	BEGIN
 		handler.pc := 0;  (* no handler *)
@@ -323,7 +329,7 @@ VAR
 			S.GET( sp, pc );   (* get return address on top of stack *)
 		END;
 		entry := Modules.GetExceptionHandler( pc );
-		WHILE (entry = -1) & (fp <= process.stackBottom) & (fp#0) & (fp MOD SIZEOF(ADDRESS)=0) DO
+		WHILE (entry = -1) & (fp >= sp) & (fp <= bottom) & (fp#0) & (fp MOD SIZEOF(ADDRESS)=0) DO
 			S.GET( fp + AddrSize, pc );
 				#IF AARCH64 THEN pc := pc - 4
 				#ELSE pc := pc - 1

@@ -91,8 +91,11 @@ TYPE
 		BEGIN
 			worker := Objects.CurrentProcess(); ASSERT(worker.stackScanner = NIL);
 			pool := newPool(); ASSERT(pool # 0);
-			Machine.Acquire(Machine.Heaps); worker.stackScanner := Scan; Machine.Release(Machine.Heaps)
+			Machine.Acquire(Machine.Heaps); worker.stackScanner := Scan; worker.stackLimit := Limit; Machine.Release(Machine.Heaps)
 		END Init;
+
+		PROCEDURE Limit(sp: ADDRESS): ADDRESS;
+		BEGIN RETURN stackLimit(pool, sp) END Limit;
 
 		PROCEDURE Scan(sp, bottom: ADDRESS);
 		BEGIN roots(pool, sp, bottom, Candidates) END Scan;
@@ -173,11 +176,12 @@ TYPE
 			WHILE bindings # NIL DO
 				Objects.BindActivityMonitor(bindings.bound, bindings.Call, FALSE); bindings := bindings.nextBound
 			END;
-			Machine.Acquire(Machine.Heaps); worker.stackScanner := NIL; close(pool); pool := 0; Machine.Release(Machine.Heaps)
+			Machine.Acquire(Machine.Heaps); worker.stackScanner := NIL; worker.stackLimit := NIL; close(pool); pool := 0; Machine.Release(Machine.Heaps)
 		END Close;
 	END Scheduler;
 
 VAR library: ADDRESS;
+	stackLimit: PROCEDURE {C}(pool, sp: ADDRESS): ADDRESS;
 	newPool: PROCEDURE {C}(): ADDRESS;
 	newFiber: PROCEDURE {C}(pool: ADDRESS; entry: PROCEDURE {C}(arg: ADDRESS); arg: ADDRESS): ADDRESS;
 	resume: PROCEDURE {C}(fiber: ADDRESS): SIGNED32;
@@ -198,6 +202,7 @@ BEGIN Heaps.RegisterCandidates(adr, size) END Candidates;
 
 BEGIN
 	library := Glue.dlopen(ADDRESSOF("@executable_path/libA2Activities.dylib"), 2); ASSERT(library # 0);
+	Unix.Dlsym(library, "activity_stack_limit", ADDRESSOF(stackLimit));
 	Unix.Dlsym(library, "activity_pool", ADDRESSOF(newPool));
 	Unix.Dlsym(library, "activity_new", ADDRESSOF(newFiber));
 	Unix.Dlsym(library, "activity_resume", ADDRESSOF(resume));

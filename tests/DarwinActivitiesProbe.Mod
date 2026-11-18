@@ -266,6 +266,26 @@ BEGIN
 	INC(visits); context.result := 71
 END RecordWorker;
 
+PROCEDURE TrapWorker*(context: Commands.Context);
+BEGIN
+	ASSERT(Objects.CurrentProcess().checkpointDue # NIL);
+	previousWorker := Unix.ThrThis(); HALT(73)
+END TrapWorker;
+
+PROCEDURE CheckRecovery*(context: Commands.Context);
+VAR res: INTEGER; pass: SIZE; msg: Modules.Name;
+BEGIN
+	FOR pass := 1 TO 2 DO
+		Commands.Activate("DarwinActivitiesProbe.TrapWorker", NIL, {Commands.Wait}, res, msg);
+		ASSERT((res = Commands.CommandTrapped) & (msg = "Exception during command execution"));
+		visits := 1; (* RecordWorker now requires the pthread that ran TrapWorker. *)
+		Kernel.GC;
+		Commands.Activate("DarwinActivitiesProbe.RecordWorker", NIL, {Commands.Wait}, res, msg);
+		ASSERT((res = 71) & (visits = 2))
+	END;
+	context.out.String("PASS pooled HALT returned CommandTrapped and the same worker ran the next command"); context.out.Ln
+END CheckRecovery;
+
 PROCEDURE CheckReuse*(context: Commands.Context);
 VAR i: SIZE; res: INTEGER; msg: Modules.Name;
 BEGIN

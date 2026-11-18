@@ -7,10 +7,12 @@ IMPORT A := DarwinActivities, Commands, Modules, Machine, Objects;
 TYPE
 	Job = OBJECT(A.Activity)
 	VAR nextJob: Job; monitor: Modules.Module; context: Commands.Context;
-		proc: PROCEDURE(context: Commands.Context); finished: BOOLEAN;
+		proc: PROCEDURE(context: Commands.Context); finished, returned: BOOLEAN;
 		PROCEDURE Run*;
 		BEGIN
-			Objects.SetContext(context); proc(context); context.out.Update; context.error.Update
+			Objects.SetContext(context); proc(context); context.out.Update; context.error.Update; returned := TRUE
+		FINALLY
+			IF ~returned THEN context.result := Commands.CommandTrapped END
 		END Run;
 		PROCEDURE Complete;
 		BEGIN {EXCLUSIVE} finished := TRUE END Complete;
@@ -115,7 +117,8 @@ BEGIN
 	IF context = NIL THEN NEW(context, NIL, NIL, NIL, NIL, NIL) END; j.context := context;
 	Start; queue.Put(j); res := Commands.Ok; msg := "";
 	IF Commands.Wait IN flags THEN
-		j.Join; res := context.result; IF res # 0 THEN COPY("Command not successful", msg) END
+		j.Join; res := context.result; IF res = Commands.CommandTrapped THEN COPY("Exception during command execution", msg)
+		ELSIF res # 0 THEN COPY("Command not successful", msg) END
 	END;
 	RETURN TRUE
 END Route;
