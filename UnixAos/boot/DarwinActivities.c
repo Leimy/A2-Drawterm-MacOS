@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <poll.h>
+#include <sys/event.h>
 #include <sys/mman.h>
 #include <stdint.h>
 #include <pthread.h>
@@ -133,6 +134,31 @@ int activity_poll_socket(int fd, int writing)
     int result;
     do { result = poll(&p, 1, -1); } while (result < 0 && errno == EINTR);
     return result > 0 && !(p.revents & POLLNVAL);
+}
+
+/* A listening socket cannot be woken with shutdown on Darwin. Watch the
+   socket and an explicit Close notification through one pollable queue. */
+int activity_setup_queue(int fd, int writing)
+{
+    int q = kqueue();
+    if (q < 0) return -1;
+    struct kevent events[2];
+    EV_SET(&events[0], fd, writing ? EVFILT_WRITE : EVFILT_READ, EV_ADD, 0, 0, NULL);
+    EV_SET(&events[1], 1, EVFILT_USER, EV_ADD, 0, 0, NULL);
+    if (kevent(q, events, 2, NULL, 0, NULL) < 0) {
+        close(q);
+        return -1;
+    }
+    return q;
+}
+
+int activity_cancel_setup(int q)
+{
+    struct kevent event;
+    EV_SET(&event, 1, EVFILT_USER, 0, NOTE_TRIGGER, 0, NULL);
+    int res;
+    do { res = kevent(q, &event, 1, NULL, 0, NULL); } while (res < 0 && errno == EINTR);
+    return res;
 }
 
 /* GCD only touches native storage. The owning A2 worker picks the fiber. */

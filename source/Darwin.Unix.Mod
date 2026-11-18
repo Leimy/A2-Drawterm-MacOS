@@ -39,6 +39,7 @@ CONST
 	ENOEXEC* = 8;   (* Exec format error *)
 	EBADF* = 9;   (* Bad file number *)
 	ECHILD* = 10;   (* No children *)
+	EINPROGRESS* = 36;
 	EAGAIN* = 35;   (* Resource temporarily unavailable; also EWOULDBLOCK *)
 	ENOMEM* = 12;   (* Not enough core *)
 	EACCES* = 13;   (* Permission denied *)
@@ -189,7 +190,7 @@ CONST
 CONST
 	(* domain *)
 		AFINET*		= 2;
-		AFINET6*	= 26;
+		AFINET6*	= 30;
 
 		PFINET*		= AFINET;
 		PFINET6*	= AFINET6;
@@ -204,6 +205,7 @@ CONST
 
 	(* setsockopt *)
 		SoLSocket*		= 0FFFFH;	(* socket option level *)
+		SoError* = 1007H; (* pending socket error *)
 		SoLinger* 		= 80H; 	(* linger (gracefully close the connection)*)
 		SoKeepAlive*	= 8;		(* keep connection alive *)
 		SoNoDelay*		= 1;		(* no delay *)

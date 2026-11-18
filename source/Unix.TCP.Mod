@@ -70,7 +70,42 @@ TYPE
 	(* Serialize operations in each direction. Shutdown wakes parked callers;
 	   the last operation to finish releases the descriptor. *)
 	IOState = OBJECT
-	VAR reading, writing: BOOLEAN;
+	VAR reading, writing, opening: BOOLEAN; queue: INTEGER;
+		PROCEDURE &Init;
+		BEGIN queue := -1 END Init;
+
+		PROCEDURE BeginOpen(c: Connection);
+		BEGIN {EXCLUSIVE}
+			ASSERT((c.state = Unused) & ~opening); opening := TRUE
+		END BeginOpen;
+
+		PROCEDURE EndOpen(c: Connection; fd: INTEGER; next: SIGNED8): BOOLEAN;
+		BEGIN {EXCLUSIVE}
+			opening := FALSE;
+			IF (c.state = Closed) OR (next = Unused) THEN RETURN FALSE END;
+			c.socket := fd; c.state := next; RETURN TRUE
+		END EndOpen;
+
+		PROCEDURE WaitSetup(c: Connection; fd: INTEGER; write: BOOLEAN): BOOLEAN;
+		VAR q: INTEGER; ready, completed: BOOLEAN;
+		BEGIN
+			q := -1;
+			BEGIN {EXCLUSIVE}
+				IF c.state # Closed THEN
+					ASSERT(queue < 0); q := Sockets.SetupQueue(fd, write); queue := q
+				END
+			END;
+			IF q >= 0 THEN ready := Sockets.WaitSocket(q, FALSE) END;
+			completed := TRUE
+		FINALLY
+			BEGIN {EXCLUSIVE}
+				IF q >= 0 THEN queue := -1; IGNORE Unix.close(q) END;
+				ready := ready & (c.state # Closed)
+			END;
+			IF ~completed THEN HALT(18) END;
+			RETURN ready
+		END WaitSetup;
+
 		PROCEDURE Acquire(c: Connection; send: BOOLEAN): BOOLEAN;
 		BEGIN {EXCLUSIVE}
 			IF send THEN
@@ -94,7 +129,9 @@ TYPE
 
 		PROCEDURE Close(c: Connection);
 		BEGIN {EXCLUSIVE}
-			IF c.state IN OpenStates THEN
+			IF queue >= 0 THEN Sockets.CancelSetup(queue) END;
+			IF opening THEN c.state := Closed
+			ELSIF c.state IN OpenStates THEN
 				c.state := Closed;
 				IF reading OR writing THEN Sockets.ShutdownReadWrite(c.socket) ELSE Sockets.Close(c.socket) END
 			END
@@ -143,68 +180,67 @@ TYPE
 				(** Open a TCP connection (only use once per Connection instance).
 					Use TCP.NilPort for lport to automatically assign an unused local port.*)
 				PROCEDURE Open*( lport: UNSIGNED32;  fip: IP.Adr;  fport: UNSIGNED32;  VAR res: INTEGER );
-				VAR
-					localAdr, foreignAdr: Sockets.SocketAdr; af: INTEGER; 
-				BEGIN {EXCLUSIVE}
-					ASSERT( (state = Unused) & (lport >= 0) & (lport < 10000H) & (fport >= 0) & (fport < 10000H) );
-			                    IF trace THEN Out.String( "Open connection fip.usedProtocol=" ); Out.Int(fip.usedProtocol, 1) END;
-			                    IF fip.usedProtocol = IP.IPv6 THEN af := Unix.AFINET6 ELSE af := Unix.AFINET END;
-			                    socket := Sockets.Socket( af, Unix.SockStream, Unix.IpProtoTCP );
-			                    IF socket # -1 THEN 						
-						IF (~IP.IsNilAdr( fip )) & (fport # NilPort) THEN
-							IF trace THEN  Out.String( "(inout) " )  END;
-							(* active open (connect) *)
-							foreignAdr := Sockets.NewSocketAdr( fip, fport );
-							IF Sockets.Connect( socket, foreignAdr )
+				VAR localAdr, foreignAdr: Sockets.SocketAdr; fd, af: INTEGER; next: SIGNED8; ok: BOOLEAN;
+				#IF LIGHTWEIGHT THEN
+				VAR pending, owned, completed: BOOLEAN;
+				#END
+				BEGIN
+					#IF ~LIGHTWEIGHT THEN
+					{EXCLUSIVE}
+					#END
+					fd := -1; next := Unused; ok := FALSE; res := NotConnected;
+					ASSERT((state = Unused) & (lport < 10000H) & (fport < 10000H));
+					#IF LIGHTWEIGHT THEN
+					io.BeginOpen(SELF); owned := TRUE;
+					#END
+					IF fip.usedProtocol = IP.IPv6 THEN af := Unix.AFINET6 ELSE af := Unix.AFINET END;
+					fd := Sockets.Socket(af, Unix.SockStream, Unix.IpProtoTCP);
+					IF fd >= 0 THEN
+						IF ~IP.IsNilAdr(fip) & (fport # NilPort) THEN
+							foreignAdr := Sockets.NewSocketAdr(fip, fport); res := ConnectionRefused;
 							#IF LIGHTWEIGHT THEN
-								& Sockets.PrepareStream(socket)
+							IF Sockets.PrepareStream(fd) THEN
+								ok := Sockets.StartConnect(fd, foreignAdr, pending);
+								IF pending THEN ok := io.WaitSetup(SELF, fd, TRUE) & Sockets.Connected(fd) END
+							END;
+							#ELSE
+							ok := Sockets.Connect(fd, foreignAdr);
 							#END
-							THEN
-								IGNORE Sockets.SetLinger( socket );
-								SELF.fip := fip;  SELF.fport := fport;
-								localAdr := Sockets.GetSockName( socket );
-								SELF.lport := Sockets.GetPortNumber( localAdr );
-								state := Established;
-								res := Ok
-							ELSE
-								Out.String( "connect failed" ); Out.Ln;
-								Sockets.Close( socket );  res := ConnectionRefused
-							END
+							IF ok THEN next := Established ELSE Out.String("connect failed"); Out.Ln END
 						ELSE
-							IF trace THEN  Out.String( "(listen) " )  END;
-							(* passive open (listen) *)
-							ASSERT( (fport = NilPort) & (IP.IsNilAdr( fip )) );
-							localAdr := Sockets.NewSocketAdr( fip, lport ); 
-							IF Sockets.Bind( socket, localAdr ) THEN
-								localAdr := Sockets.GetSockName( socket );
-								SELF.lport := Sockets.GetPortNumber( localAdr );
-								IF Sockets.Listen( socket ) THEN
-									IGNORE Sockets.SetLinger( socket );
-									SELF.fip := fip;
-									state := Listen;  res := Ok
-								ELSE  Sockets.Close( socket );  res := NotConnected
-								END
-							ELSE  Sockets.Close( socket );  res := NotConnected
-							END
-						END
-					ELSE
-						Out.String( "open socket failed" );  Out.Ln;
-						res := NotConnected
-					END;
-					IF res = Ok THEN
-						(* create a dummy interface with correct local IP-adr *)
-						NEW( int, Sockets.SockAdrToIPAdr( localAdr ) )
-					END;
-					IF trace THEN
-						IF res = Ok THEN
-							Out.String( "socket=" );  Out.Int( socket, 0 );
-							Out.String( ", locport=" );  Out.Int( SELF.lport, 0 );
-							Out.String( " done." )
-						ELSE
-							Out.String( " failed." )
+							ASSERT((fport = NilPort) & IP.IsNilAdr(fip));
+							localAdr := Sockets.NewSocketAdr(fip, lport);
+							IF Sockets.Bind(fd, localAdr) & Sockets.Listen(fd)
+							#IF LIGHTWEIGHT THEN
+								& Sockets.PrepareStream(fd)
+							#END
+							THEN next := Listen END
 						END;
-						Out.Ln
+						IF next # Unused THEN
+							localAdr := Sockets.GetSockName(fd);
+							IF localAdr # NIL THEN
+								IGNORE Sockets.SetLinger(fd); SELF.fip := fip; SELF.fport := fport;
+								SELF.lport := Sockets.GetPortNumber(localAdr);
+								NEW(int, Sockets.SockAdrToIPAdr(localAdr)); res := Ok
+							ELSE next := Unused; res := NotConnected END
+						END
 					END;
+					#IF LIGHTWEIGHT THEN
+					completed := TRUE
+				FINALLY
+					IF owned THEN
+						IF ~completed THEN next := Unused END;
+						IF io.EndOpen(SELF, fd, next) THEN fd := -1
+						ELSIF (state = Closed) OR (res = Ok) THEN res := NotConnected END
+					END;
+					IF fd >= 0 THEN Sockets.Close(fd) END;
+					IF ~completed THEN HALT(18) END;
+					#ELSE
+					IF next # Unused THEN socket := fd; state := next
+					ELSIF fd >= 0 THEN Sockets.Close(fd) END;
+					#END
+					IF trace THEN Out.String("Open: local port="); Out.Int(SELF.lport, 0);
+						Out.String(" result="); Out.Int(res, 0); Out.Ln END
 				END Open;
 
 
@@ -365,37 +401,49 @@ TYPE
 					  connection is closed. *)
 				PROCEDURE Accept*( VAR client: Connection;  VAR res: INTEGER );
 				VAR newsocket: SIGNED32;  peerAdr: Sockets.SocketAdr;
-				BEGIN {EXCLUSIVE}
-					IF trace THEN
-						Out.String( "Accept: socket=" ); Out.Int( socket, 0 );  Out.String( " ... " )
-					END;
+				#IF LIGHTWEIGHT THEN
+				VAR acquired, pending, completed: BOOLEAN;
+				#END
+				BEGIN
+					#IF ~LIGHTWEIGHT THEN
+					{EXCLUSIVE}
+					#END
+					newsocket := -1; client := NIL; res := NotConnected;
 					IF state = Listen THEN
-						newsocket := Sockets.Accept( socket );
 						#IF LIGHTWEIGHT THEN
-						IF (newsocket >= 0) & ~Sockets.PrepareStream(newsocket) THEN
-							Sockets.Close(newsocket); newsocket := -1
+						acquired := io.Acquire(SELF, FALSE);
+						IF acquired THEN
+							REPEAT
+								newsocket := Sockets.TryAccept(socket, pending)
+							UNTIL ~pending OR ~io.WaitSetup(SELF, socket, FALSE);
+							IF (newsocket >= 0) & ~Sockets.PrepareStream(newsocket) THEN
+								Sockets.Close(newsocket); newsocket := -1
+							END
 						END;
+						#ELSE
+						newsocket := Sockets.Accept(socket);
 						#END
 						IF newsocket >= 0 THEN
-							peerAdr := Sockets.GetPeerName( newsocket );
-							NEW( client );
-							client.int := int;
-							client.socket := newsocket;
-							client.state := Established;
-							client.fip := Sockets.SockAdrToIPAdr( peerAdr );
-							client.fport := Sockets.GetPortNumber( peerAdr );
-							IF trace THEN
-								Out.String( "Accept done, client socket=" );  Out.Int( newsocket, 0 );  Out.Ln
-							END;
-							res := Ok
-						ELSE
-							res := NotConnected ;
-							IF trace THEN  Out.String( "Accept failed." );  Out.Ln  END
-						END;
-					ELSE
-						res := NotConnected ;
-						IF trace THEN  Out.String( "Accept failed (state # Listen)." );  Out.Ln  END
+							peerAdr := Sockets.GetPeerName(newsocket);
+							IF peerAdr # NIL THEN
+								NEW(client); client.int := int; client.lport := lport;
+								client.fip := Sockets.SockAdrToIPAdr(peerAdr);
+								client.fport := Sockets.GetPortNumber(peerAdr);
+								client.socket := newsocket; client.state := Established;
+								newsocket := -1; res := Ok
+							END
+						END
 					END;
+					#IF LIGHTWEIGHT THEN
+					completed := TRUE
+				FINALLY
+					IF acquired THEN io.Finish(SELF, FALSE, FALSE) END;
+					#END
+					IF newsocket >= 0 THEN Sockets.Close(newsocket) END;
+					IF trace THEN Out.String("Accept: socket="); Out.Int(socket, 0); Out.String(" result="); Out.Int(res, 0); Out.Ln END;
+					#IF LIGHTWEIGHT THEN
+					IF ~completed THEN HALT(18) END
+					#END
 				END Accept;
 
 				(** Return TRUE iff a listening connection has clients waiting to be accepted. *)

@@ -1,5 +1,5 @@
 MODULE DarwinTCPActivityProbe;
-IMPORT A := DarwinActivities, Commands, TCP, IP, Sockets, Unix, Modules;
+IMPORT A := DarwinActivities, Commands, TCP, IP, Sockets, Unix, Modules, Kernel;
 
 CONST PayloadSize = 16 * 1024 * 1024;
 
@@ -71,8 +71,24 @@ BEGIN
 FINALLY cleaned := TRUE
 END TrapSend;
 
+PROCEDURE TrapAccept*(context: Commands.Context);
+VAR child: TrapOnEntry; client: TCP.Connection; res: INTEGER;
+BEGIN
+	NEW(parked); parked.Open(0, IP.Nil4Adr, 0, res); ASSERT(res = TCP.Ok);
+	NEW(child); parked.Accept(client, res); escaped := TRUE
+FINALLY cleaned := TRUE
+END TrapAccept;
+
+PROCEDURE TrapConnect*(context: Commands.Context);
+VAR child: TrapOnEntry; res: INTEGER; listener: TCP.Connection;
+BEGIN
+	NEW(listener); listener.Open(0, IP.Nil4Adr, 0, res); ASSERT(res = TCP.Ok);
+	NEW(parked); NEW(child); parked.Open(0, IP.StrToAdr("127.0.0.1"), listener.lport, res); escaped := TRUE
+FINALLY listener.Close; cleaned := TRUE
+END TrapConnect;
+
 PROCEDURE CheckCancellation*(context: Commands.Context);
-VAR res: SIGNED32; msg: Modules.Name; buf: ARRAY 1 OF CHAR; n: SIZE;
+VAR res: SIGNED32; msg: Modules.Name; dial, accepted: TCP.Connection; buf: ARRAY 1 OF CHAR; n: SIZE;
 BEGIN
 	Commands.Activate("DarwinTCPActivityProbe.TrapReceive", NIL, {Commands.Wait}, res, msg);
 	ASSERT((res = Commands.CommandTrapped) & cleaned & ~escaped);
@@ -83,7 +99,17 @@ BEGIN
 	Commands.Activate("DarwinTCPActivityProbe.TrapSend", NIL, {Commands.Wait}, res, msg);
 	ASSERT((res = Commands.CommandTrapped) & cleaned & ~escaped & (parked.State() = TCP.Closed));
 	Sockets.Close(peerfd); parked.Close;
-	context.out.String("PASS cancellation unwinds a parked TCP sender"); context.out.Ln
+	context.out.String("PASS cancellation unwinds a parked TCP sender"); context.out.Ln;
+	cleaned := FALSE;
+	Commands.Activate("DarwinTCPActivityProbe.TrapAccept", NIL, {Commands.Wait}, res, msg);
+	ASSERT((res = Commands.CommandTrapped) & cleaned & ~escaped & (parked.State() = TCP.Listen));
+	NEW(dial); dial.Open(0, IP.StrToAdr("127.0.0.1"), parked.lport, res); ASSERT(res = TCP.Ok);
+	parked.Accept(accepted, res); ASSERT(res = TCP.Ok);
+	accepted.Close; dial.Close; parked.Close;
+	cleaned := FALSE;
+	Commands.Activate("DarwinTCPActivityProbe.TrapConnect", NIL, {Commands.Wait}, res, msg);
+	ASSERT((res = Commands.CommandTrapped) & cleaned & ~escaped & (parked.State() = TCP.Unused));
+	context.out.String("PASS setup cancellation: listener reusable and interrupted connect unwound"); context.out.Ln
 END CheckCancellation;
 
 TYPE
@@ -135,11 +161,125 @@ BEGIN
 	context.out.String("PASS TCP.Send: parked writer, ordered 16 MiB transfer and full-duplex discard"); context.out.Ln
 END CheckSend;
 
+TYPE
+	Acceptor = OBJECT(A.Activity)
+	VAR listener, client: TCP.Connection; res: INTEGER; finished: BOOLEAN;
+		PROCEDURE Run*;
+		BEGIN listener.Accept(client, res); finished := TRUE END Run;
+	END Acceptor;
+
+	Dialer = OBJECT(A.Activity)
+	VAR client: TCP.Connection; ip: IP.Adr; port: UNSIGNED32; res: INTEGER; finished: BOOLEAN;
+		PROCEDURE Run*;
+		BEGIN client.Open(0, ip, port, res); finished := TRUE END Run;
+	END Dialer;
+
+PROCEDURE CheckSetup(context: Commands.Context; bindIP, loopIP: IP.Adr; af: INTEGER);
+VAR listener: TCP.Connection; s: A.Scheduler; accept, queued: Acceptor; dial: Dialer;
+	res, reserved: INTEGER; n: SIZE; buf: ARRAY 1 OF CHAR; adr: Sockets.SocketAdr;
+BEGIN
+	NEW(listener); listener.Open(0, bindIP, 0, res); ASSERT(res = TCP.Ok);
+	NEW(s); NEW(accept); accept.listener := listener; s.Start(accept);
+	ASSERT(s.Dispatch() & ~accept.finished);
+	NEW(dial); NEW(dial.client); dial.ip := loopIP; dial.port := listener.lport; s.Start(dial); s.Drain;
+	ASSERT(dial.finished & (dial.res = TCP.Ok) & accept.finished & (accept.res = TCP.Ok));
+	ASSERT((accept.client.fport = dial.client.lport) & (accept.client.lport = listener.lport));
+	buf[0] := "K"; dial.client.Send(buf, 0, 1, TRUE, res); ASSERT(res = TCP.Ok);
+	buf[0] := 0X; accept.client.Receive(buf, 0, 1, 1, n, res); ASSERT((res = TCP.Ok) & (buf[0] = "K"));
+	dial.client.Close; accept.client.Close;
+	NEW(dial); NEW(dial.client); dial.ip := loopIP; dial.port := listener.lport;
+	s.Start(dial); ASSERT(s.Dispatch() & ~dial.finished); Kernel.GC; dial.client.Close; s.Drain;
+	ASSERT(dial.finished & (dial.res = TCP.NotConnected) & (dial.client.State() = TCP.Closed));
+	(* The kernel may already have queued the cancelled handshake. Use a fresh listener. *)
+	listener.Close; NEW(listener); listener.Open(0, bindIP, 0, res); ASSERT(res = TCP.Ok);
+	NEW(accept); accept.listener := listener; s.Start(accept); ASSERT(s.Dispatch() & ~accept.finished);
+	NEW(queued); queued.listener := listener; s.Start(queued); ASSERT(s.Dispatch() & ~queued.finished);
+	Kernel.GC; listener.Close; s.Drain;
+	ASSERT(accept.finished & (accept.res = TCP.NotConnected) & (accept.client = NIL));
+	ASSERT(queued.finished & (queued.res = TCP.NotConnected) & (queued.client = NIL));
+	IF af = Unix.AFINET THEN
+		reserved := Sockets.Socket(af, Unix.SockStream, Unix.IpProtoTCP); ASSERT(reserved >= 0);
+		ASSERT(Sockets.Bind(reserved, Sockets.NewSocketAdr(loopIP, 0)));
+		adr := Sockets.GetSockName(reserved); ASSERT(adr # NIL);
+		NEW(dial); NEW(dial.client); dial.ip := loopIP; dial.port := Sockets.GetPortNumber(adr);
+		s.Start(dial); s.Drain; ASSERT(dial.finished & (dial.res = TCP.ConnectionRefused));
+		Sockets.Close(reserved)
+	END;
+	s.Close;
+	context.out.String("PASS TCP setup IPv"); context.out.Int(loopIP.usedProtocol, 0); context.out.String(": single-worker loopback, Close interrupts queued accepts and a pending connect"); context.out.Ln
+END CheckSetup;
+
+CONST Clients = 24;
+TYPE
+	Batch = OBJECT
+	VAR worker: Unix.Thread_t; done, accepted: SIZE;
+		PROCEDURE Arrived;
+		BEGIN {EXCLUSIVE} INC(accepted) END Arrived;
+		PROCEDURE WaitAccepted(n: SIZE);
+		BEGIN {EXCLUSIVE} AWAIT(accepted >= n) END WaitAccepted;
+		PROCEDURE Finish;
+		BEGIN {EXCLUSIVE} ASSERT(Unix.ThrThis() = worker); INC(done) END Finish;
+		PROCEDURE Join;
+		BEGIN {EXCLUSIVE} AWAIT(done = 2 * Clients + 1) END Join;
+	END Batch;
+
+	Echo = OBJECT
+	VAR c: TCP.Connection; batch: Batch;
+		PROCEDURE &Init(c: TCP.Connection; batch: Batch);
+		BEGIN SELF.c := c; SELF.batch := batch END Init;
+	VAR data: ARRAY 1 OF CHAR; n: SIZE; res: INTEGER;
+	BEGIN {ACTIVE}
+		c.Receive(data, 0, 1, 1, n, res); ASSERT((res = TCP.Ok) & (n = 1));
+		c.Send(data, 0, 1, TRUE, res); ASSERT(res = TCP.Ok);
+		c.Close; batch.Finish
+	END Echo;
+
+	Server = OBJECT
+	VAR listener: TCP.Connection; batch: Batch;
+		PROCEDURE &Init(listener: TCP.Connection; batch: Batch);
+		BEGIN SELF.listener := listener; SELF.batch := batch END Init;
+	VAR client: TCP.Connection; echo: Echo; i, res: INTEGER;
+	BEGIN {ACTIVE}
+		FOR i := 1 TO Clients DO
+			listener.Accept(client, res); ASSERT(res = TCP.Ok);
+			NEW(echo, client, batch); batch.Arrived
+		END;
+		listener.Close; batch.Finish
+	END Server;
+
+	Client = OBJECT
+	VAR port: UNSIGNED32; tag: CHAR; batch: Batch;
+		PROCEDURE &Init(port: UNSIGNED32; tag: CHAR; batch: Batch);
+		BEGIN SELF.port := port; SELF.tag := tag; SELF.batch := batch END Init;
+	VAR c: TCP.Connection; data: ARRAY 1 OF CHAR; n: SIZE; res: INTEGER;
+	BEGIN {ACTIVE}
+		NEW(c); c.Open(0, IP.StrToAdr("127.0.0.1"), port, res); ASSERT(res = TCP.Ok);
+		batch.WaitAccepted(Clients); data[0] := tag; c.Send(data, 0, 1, TRUE, res); ASSERT(res = TCP.Ok);
+		data[0] := 0X; c.Receive(data, 0, 1, 1, n, res);
+		ASSERT((res = TCP.Ok) & (n = 1) & (data[0] = tag));
+		c.Close; batch.Finish
+	END Client;
+
+PROCEDURE FanIn*(context: Commands.Context);
+VAR listener: TCP.Connection; batch: Batch; server: Server; client: Client; i, res: INTEGER;
+BEGIN
+	NEW(batch); batch.worker := Unix.ThrThis();
+	NEW(listener); listener.Open(0, IP.Nil4Adr, 0, res); ASSERT(res = TCP.Ok);
+	NEW(server, listener, batch);
+	(* Keep every session live while admitting connections within the listen backlog. *)
+	FOR i := 1 TO Clients DO
+		NEW(client, listener.lport, CHR(i), batch); batch.WaitAccepted(i)
+	END;
+	batch.Join;
+	context.out.String("PASS 24 TCP clients, 24 echo handlers and a listener on one pthread"); context.out.Ln
+END FanIn;
+
 PROCEDURE Run*(context: Commands.Context);
 VAR c: TCP.Connection; peer, mode, res: SIGNED32; s: A.Scheduler; r: Reader; w: Writer; native: DelayedPeer;
 	n: SIZE; buf: ARRAY 1 OF CHAR;
 BEGIN
-	CheckSend(context);
+	CheckSetup(context, IP.Nil4Adr, IP.StrToAdr("127.0.0.1"), Unix.AFINET);
+	CheckSetup(context, IP.Nil6Adr, IP.StrToAdr("::1"), Unix.AFINET6); CheckSend(context);
 	FOR mode := 0 TO 2 DO
 		Loopback(c, peer); SendByte(peer, "A");
 		NEW(s); NEW(r); r.c := c; NEW(w); w.peer := peer; w.mode := mode; w.c := c;

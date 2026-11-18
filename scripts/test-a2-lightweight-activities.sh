@@ -50,20 +50,40 @@ run compile -p=DarwinA2 --traceModule=Trace --define=UNIX,AARCH64,DESKTOP,LIGHTW
 run execute core.txt
 grep -q 'Link successful' run.log
 run compile -p=DarwinA2 CSP.Mod CSPChannels.Mod CSPDemo.Mod ConcurrentSieve.Mod DarwinActivities.Mod DarwinCommandWorkers.Mod DarwinActivitiesProbe.Mod
-run compile -p=DarwinA2 --define=UNIX,AARCH64,DESKTOP Network.Mod Unix.IP.Mod Unix.Sockets.Mod Unix.TCP.Mod
+if ! "$command_mode"; then
+    # Keep the ordinary network objects and symbols separate from the fiber build.
+    (
+        mkdir stock
+        cd stock
+        cp "$work/OberonLoader" .
+        export AOSPATH="$PWD:$AOSPATH"
+        run compile -p=DarwinA2 --define=UNIX,AARCH64,DESKTOP Network.Mod Unix.IP.Mod Unix.Sockets.Mod Unix.TCP.Mod Unix.UDP.Mod Unix.DNS.Mod DarwinNetworkProbe.Mod
+        export OBERON_CORE="$work/DarwinAosCompilerAa"
+        run do DarwinNetworkProbe.Run
+        grep -F 'NETWORK PASS TCP loopback' run.log
+        grep -F 'NETWORK PASS UDP loopback' run.log
+    )
+fi
 run compile -p=DarwinA2 --define=UNIX,AARCH64,DESKTOP,LIGHTWEIGHT Network.Mod Unix.IP.Mod Unix.Sockets.Mod Unix.TCP.Mod DarwinTCPActivityProbe.Mod
 test -s TCP.GofAa
 test -s DarwinActivitiesProbe.GofAa
 export OBERON_CORE="$work/DarwinAosCompilerAa"
-routes='ConcurrentSieve.Run:ConcurrentSieve,CSPDemo.Run:CSP'
+routes='ConcurrentSieve.Run:ConcurrentSieve,CSPDemo.Run:CSP,DarwinTCPActivityProbe.FanIn:-'
 if "$command_mode"; then
     export AOSCONFIG="$AOSCONFIG ActivityWorkers ${A2_ACTIVITY_WORKERS:-2} ActivityCommands $routes"
     ./OberonLoader do "$2"
     exit $?
 fi
 run do DarwinTCPActivityProbe.Run
+grep -F "PASS TCP setup IPv4" run.log
+grep -F "PASS TCP setup IPv6" run.log
 grep -F "PASS TCP.Send: parked writer" run.log
 grep -F "PASS TCP.Receive loopback" run.log
+(
+    export AOSCONFIG="$AOSCONFIG ActivityWorkers 1 ActivityCommands DarwinTCPActivityProbe.FanIn:-"
+    run do DarwinTCPActivityProbe.FanIn
+    grep -F 'PASS 24 TCP clients' run.log
+)
 run compile -p=DarwinA2 DarwinLoopCheckpointProbe.Mod
 # The rebuilt compiler can create objects without owner read permission.
 chmod u+rw DarwinLoopCheckpointProbe.GofAa DarwinLoopCheckpointProbe.SymAa
@@ -155,10 +175,11 @@ if ! with_deadline 20 ./OberonLoader do DarwinActivitiesProbe.CheckSocketRecover
     exit 1
 fi
 
-export AOSCONFIG="$base_config ActivityWorkers 1 ActivityCommands DarwinTCPActivityProbe.TrapReceive:-,DarwinTCPActivityProbe.TrapSend:-"
+export AOSCONFIG="$base_config ActivityWorkers 1 ActivityCommands DarwinTCPActivityProbe.TrapReceive:-,DarwinTCPActivityProbe.TrapSend:-,DarwinTCPActivityProbe.TrapAccept:-,DarwinTCPActivityProbe.TrapConnect:-"
 if ! with_deadline 20 ./OberonLoader do DarwinTCPActivityProbe.CheckCancellation > tcpwait.log 2>&1 ||
    ! grep -aF 'PASS cancellation releases the TCP reader' tcpwait.log ||
-   ! grep -aF 'PASS cancellation unwinds a parked TCP sender' tcpwait.log; then
+   ! grep -aF 'PASS cancellation unwinds a parked TCP sender' tcpwait.log ||
+   ! grep -aF 'PASS setup cancellation:' tcpwait.log; then
     cat tcpwait.log >&2
     exit 1
 fi

@@ -59,13 +59,13 @@ VAR
 	socket		: PROCEDURE {C} ( af, typ, protocol: INTEGER ): INTEGER;
 	setsockopt	: PROCEDURE {C} ( s: INTEGER; level, optname: INTEGER; VAR opt: SocketOption; optlen: Length): INTEGER;
 	accept		: PROCEDURE {C} ( s: INTEGER; adrPtr: ADDRESS; VAR adrlen: Length ): INTEGER;
-	bind		: PROCEDURE {C} ( s: INTEGER; adr: SocketAdr; adrlen: Length ): INTEGER;
-	connect		: PROCEDURE {C} ( s: INTEGER; adr: SocketAdr; adrlen: Length ): INTEGER;
+	bind		: PROCEDURE {C} ( s: INTEGER; adr: ADDRESS; adrlen: Length ): INTEGER;
+	connect		: PROCEDURE {C} ( s: INTEGER; adr: ADDRESS; adrlen: Length ): INTEGER;
 	listen		: PROCEDURE {C} ( s: INTEGER; backlog: INTEGER ): INTEGER;
 	recv		: PROCEDURE {C} ( s: INTEGER; buf: ADDRESS; len: SIZE; flags: INTEGER ): SIZE;
 	send		: PROCEDURE {C} ( s: INTEGER; buf: ADDRESS; len: SIZE; flags: INTEGER ): SIZE;
 	recvfrom	: PROCEDURE {C} ( s: INTEGER; buf: ADDRESS; len: SIZE; flags: INTEGER; from: NameBuf; VAR flen: Length ): SIZE;
-	sendto		: PROCEDURE {C} ( s: INTEGER; buf: ADDRESS; len: SIZE; flags: INTEGER; to: SocketAdr; tolen: Length ): SIZE;
+	sendto		: PROCEDURE {C} ( s: INTEGER; buf: ADDRESS; len: SIZE; flags: INTEGER; to: ADDRESS; tolen: Length ): SIZE;
 	shutdown	: PROCEDURE {C} ( s: INTEGER; how: INTEGER ): INTEGER;
 
 	getpeername	: PROCEDURE {C} ( s: INTEGER; adr: NameBuf; VAR adrlen: Length ): INTEGER;
@@ -131,16 +131,29 @@ VAR
 		RETURN port
 	END GetPortNumber;
 
+	(* Keep SocketAdr.family in host form for A2 callers. Darwin's sockaddr
+	   starts with two separate bytes, sa_len and sa_family. *)
+	PROCEDURE NativeAddress(addr: SocketAdr; VAR bytes: ARRAY OF CHAR): Length;
+	VAR size: Length;
+	BEGIN
+		IF addr IS SocketAdrV4 THEN size := Unix.SockAddrSizeV4 ELSE size := Unix.SockAddrSizeV6 END;
+		ASSERT(LEN(bytes) >= size); S.MOVE(ADDRESSOF(addr^), ADDRESSOF(bytes[0]), size);
+		IF Unix.Version = "Darwin" THEN bytes[0] := CHR(size); bytes[1] := CHR(addr.family) END;
+		RETURN size
+	END NativeAddress;
+
 	PROCEDURE BufToSocketAdr( CONST buf: ARRAY OF CHAR; len: INTEGER ): SocketAdr;
 	VAR adr4: SocketAdrV4; adr6: SocketAdrV6;
 	BEGIN
 		IF len = Unix.SockAddrSizeV4 THEN
 			NEW( adr4 );
 			S.MOVE( ADDRESSOF( buf ), ADDRESSOF( adr4^), len );
+			IF Unix.Version = "Darwin" THEN adr4.family := ORD(buf[1]) END;
 			RETURN adr4
 		ELSE
 			NEW( adr6 );
 			S.MOVE( ADDRESSOF( buf ), ADDRESSOF( adr6^), len );
+			IF Unix.Version = "Darwin" THEN adr6.family := ORD(buf[1]) END;
 			RETURN adr6
 		END
 	END BufToSocketAdr;
@@ -158,33 +171,73 @@ VAR
 	END Accept;
 
 	PROCEDURE Bind*( s: INTEGER; addr: SocketAdr): BOOLEAN;
-	VAR err: INTEGER; len: Length;
+	VAR err: INTEGER; len: Length; native: ARRAY 64 OF CHAR;
 	BEGIN
-		IF addr.family = Unix.AFINET THEN  len := Unix.SockAddrSizeV4  ELSE  len := Unix.SockAddrSizeV6  END;
-		err:= bind( s, addr, len );
+		len := NativeAddress(addr, native);
+		err:= bind(s, ADDRESSOF(native[0]), len);
 		RETURN err = 0
 	END Bind;
 
 	#IF LIGHTWEIGHT THEN
-	VAR setNonblocking: PROCEDURE {C}(fd: INTEGER): INTEGER;
+	VAR setupQueue: PROCEDURE {C}(fd, writing: INTEGER): INTEGER;
+		cancelSetup: PROCEDURE {C}(queue: INTEGER): INTEGER;
+		getsockopt: PROCEDURE {C}(fd, level, option: INTEGER; VAR value: INTEGER; VAR size: Length): INTEGER;
+		setNonblocking: PROCEDURE {C}(fd: INTEGER): INTEGER;
 		pollSocket: PROCEDURE {C}(fd, writing: INTEGER): INTEGER;
 
 	PROCEDURE PrepareStream*(fd: INTEGER): BOOLEAN;
 	BEGIN RETURN setNonblocking(fd) # 0 END PrepareStream;
 
-	PROCEDURE TransferStream(fd: INTEGER; buf: ADDRESS; VAR len: SIZE; writing: BOOLEAN): BOOLEAN;
-	VAR n: SIZE; err, direction: INTEGER; p: Objects.Process;
+	PROCEDURE WaitSocket*(fd: INTEGER; writing: BOOLEAN): BOOLEAN;
+	VAR p: Objects.Process; direction: INTEGER;
 	BEGIN
-		p := Objects.CurrentProcess(); IF writing THEN direction := 1 ELSE direction := 0 END;
+		p := Objects.CurrentProcess();
+		IF (p # NIL) & (p.awaitSocket # NIL) THEN RETURN p.awaitSocket(fd, writing) END;
+		IF writing THEN direction := 1 ELSE direction := 0 END;
+		RETURN pollSocket(fd, direction) # 0
+	END WaitSocket;
+
+	PROCEDURE SetupQueue*(fd: INTEGER; writing: BOOLEAN): INTEGER;
+	BEGIN IF writing THEN RETURN setupQueue(fd, 1) ELSE RETURN setupQueue(fd, 0) END END SetupQueue;
+
+	PROCEDURE CancelSetup*(queue: INTEGER);
+	BEGIN ASSERT(cancelSetup(queue) = 0) END CancelSetup;
+
+	PROCEDURE StartConnect*(fd: INTEGER; addr: SocketAdr; VAR pending: BOOLEAN): BOOLEAN;
+	VAR size: Length; err: INTEGER; native: ARRAY 64 OF CHAR;
+	BEGIN
+		size := NativeAddress(addr, native);
+		pending := FALSE; IF connect(fd, ADDRESSOF(native[0]), size) = 0 THEN RETURN TRUE END;
+		err := Unix.errno(); pending := (err = Unix.EINPROGRESS) OR (err = Unix.EINTR); RETURN FALSE
+	END StartConnect;
+
+	PROCEDURE Connected*(fd: INTEGER): BOOLEAN;
+	VAR err: INTEGER; size: Length;
+	BEGIN
+		size := SIZEOF(INTEGER);
+		RETURN (getsockopt(fd, Unix.SoLSocket, Unix.SoError, err, size) = 0) & (err = 0)
+	END Connected;
+
+	PROCEDURE TryAccept*(fd: INTEGER; VAR pending: BOOLEAN): INTEGER;
+	VAR new, err: INTEGER; size: Length;
+	BEGIN
+		size := 0; pending := FALSE;
+		LOOP
+			new := accept(fd, 0, size); IF new >= 0 THEN RETURN new END;
+			err := Unix.errno(); IF err # Unix.EINTR THEN pending := err = Unix.EAGAIN; RETURN -1 END
+		END
+	END TryAccept;
+
+	PROCEDURE TransferStream(fd: INTEGER; buf: ADDRESS; VAR len: SIZE; writing: BOOLEAN): BOOLEAN;
+	VAR n: SIZE; err: INTEGER;
+	BEGIN
 		LOOP
 			IF writing THEN n := send(fd, buf, len, Unix.MsgNoSignal)
 			ELSE n := recv(fd, buf, len, 0) END;
 			IF n >= 0 THEN len := n; RETURN TRUE END;
 			err := Unix.errno();
 			IF err = Unix.EAGAIN THEN
-				IF (p # NIL) & (p.awaitSocket # NIL) THEN
-					IF ~p.awaitSocket(fd, writing) THEN EXIT END
-				ELSIF pollSocket(fd, direction) = 0 THEN EXIT END
+				IF ~WaitSocket(fd, writing) THEN EXIT END
 			ELSIF err # Unix.EINTR THEN EXIT END
 		END;
 		len := 0; RETURN FALSE
@@ -213,10 +266,10 @@ VAR
 	END Close;
 
 	PROCEDURE Connect*( s: INTEGER; addr: SocketAdr ): BOOLEAN;
-	VAR err: INTEGER; len: Length;
+	VAR err: INTEGER; len: Length; native: ARRAY 64 OF CHAR;
 	BEGIN
-		IF addr.family = Unix.AFINET THEN  len := Unix.SockAddrSizeV4  ELSE  len := Unix.SockAddrSizeV6  END;
-		err:= connect( s, addr, len );
+		len := NativeAddress(addr, native);
+		err:= connect(s, ADDRESSOF(native[0]), len);
 		IF err = 0 THEN
 			RETURN TRUE
 		ELSE
@@ -319,11 +372,11 @@ VAR
 	END RecvFrom;
 
 	PROCEDURE SendTo*( s: INTEGER;  dest: SocketAdr;  CONST buf: ARRAY OF CHAR;  pos, len: SIZE ): BOOLEAN;
-	VAR err: SIZE; size: Length;
+	VAR err: SIZE; size: Length; native: ARRAY 64 OF CHAR;
 	BEGIN
 		ASSERT( LEN(buf) - pos >= len );
-		IF dest.family = Unix.AFINET THEN  size := Unix.SockAddrSizeV4  ELSE  size := Unix.SockAddrSizeV6  END;
-		err:= sendto( s, ADDRESSOF( buf[pos] ), len, 0, dest, size );
+		size := NativeAddress(dest, native);
+		err:= sendto( s, ADDRESSOF( buf[pos] ), len, 0, ADDRESSOF(native[0]), size );
 		IF err >= 0 THEN
 			RETURN TRUE
 		ELSE
@@ -451,6 +504,9 @@ VAR
 		slib := Glue.dlopen(ADDRESSOF("@executable_path/libA2Activities.dylib"), 2); ASSERT(slib # 0);
 		Unix.Dlsym(slib, "activity_nonblocking", ADDRESSOF(setNonblocking));
 		Unix.Dlsym(slib, "activity_poll_socket", ADDRESSOF(pollSocket));
+		Unix.Dlsym(slib, "activity_setup_queue", ADDRESSOF(setupQueue));
+		Unix.Dlsym(slib, "activity_cancel_setup", ADDRESSOF(cancelSetup));
+		Unix.Dlsym(Unix.libc, "getsockopt", ADDRESSOF(getsockopt));
 		#END
 		IF Unix.Version = "Solaris" THEN
 			slib := Unix.Dlopen( "libsocket.so.1", 2 );
