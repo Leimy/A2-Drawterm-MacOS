@@ -6,13 +6,13 @@ IMPORT A := DarwinActivities, Objects, Modules;
 TYPE
 	Body* = PROCEDURE {DELEGATE};
 	Service* = OBJECT(A.Activity)
-	VAR body: Body; queuedNext: Service; finished, returned: BOOLEAN;
+	VAR body: Body; objectBody: Objects.ActivityBody; object: Objects.ActivitySelf; queuedNext: Service; finished, returned: BOOLEAN;
 		PROCEDURE Complete;
-		BEGIN {EXCLUSIVE} body := NIL; finished := TRUE END Complete;
+		BEGIN {EXCLUSIVE} body := NIL; objectBody := NIL; object := NIL; finished := TRUE END Complete;
 		PROCEDURE Join*(): BOOLEAN;
 		BEGIN {EXCLUSIVE} AWAIT(finished); RETURN returned END Join;
 		PROCEDURE Run*;
-		BEGIN body(); returned := TRUE
+		BEGIN IF objectBody # NIL THEN objectBody(object) ELSE body() END; returned := TRUE
 		FINALLY Complete; broker.Done
 		END Run;
 	END Service;
@@ -68,7 +68,7 @@ TYPE
 		PROCEDURE Run*;
 		VAR service: Service;
 		BEGIN
-			LOOP service := broker.Take(); IF service = NIL THEN EXIT END; scheduler.Start(service) END
+			LOOP service := broker.Take(); IF service = NIL THEN EXIT END; scheduler.StartObject(service, service.object) END
 		END Run;
 	END Dispatcher;
 
@@ -87,6 +87,10 @@ VAR service: Service;
 BEGIN
 	ASSERT(body # NIL); NEW(service); service.body := body; broker.Put(service); RETURN service
 END Start;
+
+PROCEDURE StartObject*(body: Objects.ActivityBody; obj: Objects.ActivitySelf);
+VAR service: Service;
+BEGIN NEW(service); service.objectBody := body; service.object := obj; broker.Put(service) END StartObject;
 
 PROCEDURE Cleanup;
 BEGIN WHILE broker.Active() DO Objects.Sleep(1) END END Cleanup;

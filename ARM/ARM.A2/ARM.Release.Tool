@@ -210,7 +210,7 @@ PACKAGE GUI ARCHIVE "GUI.zip" SOURCE "GUISrc.zip" DESCRIPTION "GUI & WindowManag
 	WMMessages.Mod WMRectangles.Mod
 	ARM { ZYNQ:/ARM.WMRasterScale.Mod }
 	WMEvents.Mod SoundDevices.Mod FP1616.Mod Texts.Mod Inflate.Mod CRC.Mod
-	Unzip.Mod Archives.Mod Codecs.Mod Localization.Mod Repositories.Mod Events.Mod
+	Unzip.Mod Archives.Mod Codecs.Mod Localization.Mod Repositories.Mod ServiceActivities.Mod Events.Mod
 
 	UnicodeProperties.Mod
 	WMGraphics.Mod WMDefaultFont.Mod WMGraphicsSmooth.Mod

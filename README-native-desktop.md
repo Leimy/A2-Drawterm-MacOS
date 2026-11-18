@@ -633,6 +633,26 @@ worker to deliver it to the registered sinks. System → Shutdown stops the
 queue and joins the dispatcher. Other desktop active objects continue to use
 their existing execution paths.
 
+To write a service for either build, import `ServiceActivities`, keep a
+`ServiceActivities.Service` handle and call `ServiceActivities.Start(obj.Run)`
+with a parameterless method. When shutting down, wake the method through its
+own stop protocol and call `handle.Join()`. It returns TRUE when the method
+returns normally. The portable recipe compiles `ServiceActivities.Mod`, whose
+worker uses an ordinary `{ACTIVE}` body. The lightweight desktop recipe
+substitutes `Darwin.ServiceActivities.Mod`, which declares the same module
+name and schedules the body on the shared worker. Both compile the same
+`Events.Mod`. No platform detection is needed in a service module.
+
+For an independently lived active object, extend
+`ServiceActivities.DetachedObject` and use its ordinary constructor and
+`BEGIN {ACTIVE}` body. RadioGlobe's status watcher is an example. In the
+experimental desktop its body runs on the service worker and its normal
+`{EXCLUSIVE}` methods are callable from the UI. The creator can return
+immediately. The owner signals termination and waits where its own lifetime
+requires it (RadioGlobe waits at module cleanup). On the portable backend
+the base is empty and A2 starts the active body as usual. Explicit priority
+or process flags retain the native execution path.
+
 On a lightweight activity, `Objects.Sleep(ms)` parks until a monotonic deadline.
 Other runnable activities can use that pthread in the meantime. A zero delay
 yields one turn. A caller holding a native A2 monitor uses pthread sleep so a

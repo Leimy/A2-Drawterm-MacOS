@@ -14,12 +14,7 @@ MODULE Events; (** AUTHOR "staubesv"; PURPOSE "System events interface"; *)
  *	06.03.2007	First release (staubesv)
  *)
 
-IMPORT
-	KernelLog, Modules, Clock
-	#IF LIGHTWEIGHT THEN
-	, DarwinServices
-	#END
-	;
+IMPORT KernelLog, Modules, Clock, ServiceActivities;
 
 CONST
 
@@ -34,11 +29,6 @@ CONST
 	Failure* = 6;
 
 	(** Event classes, subclasses and codes are supposed to be defined at higher levels (see AosEventClasses.XML) *)
-
-	(* Event Dispatcher states *)
-	Running = 1;
-	Terminating = 2;
-	Terminated = 3;
 
 	QueueSize= 256; (* event records *)
 
@@ -143,28 +133,19 @@ TYPE
 			END;
 		END Enqueue;
 
-		PROCEDURE Dequeue(VAR event : Event);
+		PROCEDURE Next(VAR event : Event): BOOLEAN;
 		BEGIN {EXCLUSIVE}
-			AWAIT(len > 0);
+			AWAIT((len > 0) OR ~running);
+			IF ~running THEN RETURN FALSE END;
 			event := ringbuffer[head];
 			head := (head + 1) MOD size;
-			DEC(len);
-		END Dequeue;
+			DEC(len); RETURN TRUE
+		END Next;
 
 		PROCEDURE IsFull() : BOOLEAN;
 		BEGIN
 			RETURN len = QueueSize;
 		END IsFull;
-
-		PROCEDURE IsEmpty() : BOOLEAN;
-		BEGIN {EXCLUSIVE}
-			RETURN len = 0;
-		END IsEmpty;
-
-		PROCEDURE AwaitEvents;
-		BEGIN {EXCLUSIVE}
-			AWAIT((len > 0) OR (~running));
-		END AwaitEvents;
 
 		PROCEDURE Stop;
 		BEGIN {EXCLUSIVE}
@@ -185,7 +166,6 @@ TYPE
 
 	EventDispatcher = OBJECT
 	VAR
-		state : SIGNED32;
 		queue : EventQueue;
 		sinks : Sink;
 
@@ -222,49 +202,21 @@ TYPE
 			END;
 		END Dispatch;
 
-		PROCEDURE DispatchEvents;
-		VAR event : Event;
-		BEGIN
-			WHILE (state = Running) & ~queue.IsEmpty() DO
-				queue.Dequeue(event);
-				Dispatch(event);
-			END;
-		END DispatchEvents;
-
-		PROCEDURE Stop;
-		BEGIN
-			BEGIN {EXCLUSIVE} state := Terminating; END;
-			queue.Stop;
-			#IF ~LIGHTWEIGHT THEN
-			BEGIN {EXCLUSIVE} AWAIT(state = Terminated); END;
-			#END
-		END Stop;
-
 		PROCEDURE &Init*;
 		BEGIN
 			NEW(sinks); (* head of list *)
 			NEW(queue, QueueSize);
-			state := Running;
 		END Init;
 
 		PROCEDURE Run;
-		BEGIN
-			WHILE state = Running DO
-				DispatchEvents;
-				queue.AwaitEvents();
-			END;
-			BEGIN {EXCLUSIVE} state := Terminated; END;
+		VAR event: Event;
+		BEGIN WHILE queue.Next(event) DO Dispatch(event) END
 		END Run;
-	#IF ~LIGHTWEIGHT THEN
-	BEGIN {ACTIVE} Run
-	#END
 	END EventDispatcher;
 
 VAR
 	dispatcher : EventDispatcher;
-	#IF LIGHTWEIGHT THEN
-	service: DarwinServices.Service;
-	#END
+	service: ServiceActivities.Service;
 
 	(* statistics *)
 	NnofEvents-, NnofDiscarded-, NnofEventsHandled-, NnofEventsNotHandled-,
@@ -359,24 +311,20 @@ END Install;
 
 PROCEDURE Cleanup;
 BEGIN
-	dispatcher.Stop;
-	#IF LIGHTWEIGHT THEN
+	dispatcher.queue.Stop;
 	IGNORE service.Join(); service := NIL;
-	#END
 	IF Verbose THEN KernelLog.Enter; KernelLog.String(ModuleName); KernelLog.String(": System event log shut down."); KernelLog.Exit; END;
 END Cleanup;
 
 BEGIN
 	NEW(dispatcher);
-	#IF LIGHTWEIGHT THEN
-	service := DarwinServices.Start(dispatcher.Run);
-	#END
+	service := ServiceActivities.Start(dispatcher.Run);
 	Modules.InstallTermHandler(Cleanup);
 	IF Verbose THEN KernelLog.Enter; KernelLog.String(ModuleName); KernelLog.String(": System event log started."); KernelLog.Exit; END;
 END Events.
 
 PC.Compile \s
-	Events.Mod EventsUtils.Mod EventsMemoryLog.Mod EventsKernelLog.Mod EventsFileLog.Mod WMEventLog.Mod
+	ServiceActivities.Mod Events.Mod EventsUtils.Mod EventsMemoryLog.Mod EventsKernelLog.Mod EventsFileLog.Mod WMEventLog.Mod
 ~
 
 System.Free

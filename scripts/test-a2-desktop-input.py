@@ -44,7 +44,7 @@ def main():
     parser.add_argument('--video-encoder', help='native encoder executable for --radio-globe-video')
     parser.add_argument('--radio-globe-quality', action='store_true', help='check filtered texture projection at deep zoom')
     parser.add_argument('--radio-globe-regression', action='store_true', help='check polar rendering, inertia, friction, grab and close')
-    parser.add_argument('--radio-globe-interaction', action='store_true', help='drag and wheel Demos > RadioGlobe and require the Earth to change')
+    parser.add_argument('--radio-globe-interaction', action='store_true', help='rotate and zoom RadioGlobe, close its window, then shut down A2')
     parser.add_argument('--radio-globe-audio', action='store_true', help='click RadioGlobe Play radio and Stop and require streaming playback logs')
     parser.add_argument('--radio-globe-stations', action='store_true', help='select a marker, switch stations, stop, and search the catalogue')
     parser.add_argument('--menu-app', choices=['tetris', 'oberon', 'log', 'clock', 'calendar', 'shell', 'files', 'tutorial', 'chinese-tutorial', 'pet', 'search', 'scribble', 'bunny', '3d-explorer', 'turing', 'radio-globe', 'mandelbrot', 'figures', 'text-writer', 'image-grid', 'audio-test', 'audio-mixer', 'hex-editor', 'key-codes', 'color-picker', 'text-styles', 'image-viewer', 'graph-demos', 'drawing-overlay', 'on-screen-message', 'module-state', 'backdrops', 'gfx-spiral', 'slideshow', 'task-scheduler', 'performance', 'ftp-client', 'skin-editor', 'interpreter-shell', 'gui-builder', 'skin-chooser', 'desktop-icon', 'input-methods', 'language', 'window-switcher', 'web-browser'],
@@ -200,6 +200,7 @@ def main():
     radio_drag_index = 0; radio_drag_before = None; radio_drag_sent_at = None
     radio_drag_events = [(400, 300, 0), (400, 300, 1), (470, 320, 1), (470, 320, 0)]
     radio_wheel_index = 0; radio_wheel_before = None; radio_wheel_sent_at = None
+    radio_close_index = 0; radio_closing = False; radio_closed = False
     radio_audio_events = [(130, 560, 0), (130, 560, 1), (130, 560, 0),
                           (230, 560, 0), (230, 560, 1), (230, 560, 0)]
     radio_audio_index = 0
@@ -240,7 +241,9 @@ def main():
                                 tail = os.read(process.stdout.fileno(), 65536)
                                 if not tail: break
                                 text = tail.decode(errors='replace'); print(text, end='', flush=True); output += text
-                        if (args.shutdown or args.tetris_shutdown) and shutdown_index == len(shutdown_events) and 'System event log shut down' in output:
+                        if (args.shutdown or args.tetris_shutdown or radio_closed) and shutdown_index == len(shutdown_events) and 'System event log shut down' in output:
+                            process.wait(timeout=2)
+                            if process.returncode != 0: raise RuntimeError(f'A2 shutdown returned {process.returncode}')
                             print('PASS: System > Shutdown exited the native A2 process')
                             return
                         raise RuntimeError('A2 exited before completing the input test')
@@ -270,7 +273,7 @@ def main():
                                 tail = os.read(process.stdout.fileno(), 65536)
                                 if not tail: break
                                 text = tail.decode(errors='replace'); print(text, end='', flush=True); output += text
-                        if (args.shutdown or args.tetris_shutdown) and shutdown_index == len(shutdown_events) and 'System event log shut down' in output:
+                        if (args.shutdown or args.tetris_shutdown or radio_closed) and shutdown_index == len(shutdown_events) and 'System event log shut down' in output:
                             process.wait(timeout=2)
                             if process.returncode != 0: raise RuntimeError(f'A2 shutdown returned {process.returncode}')
                             print('PASS: System > Shutdown exited the native A2 process')
@@ -365,7 +368,7 @@ def main():
                 event = ('r' + ''.join(f'{n:11d} ' for n in [origin_x, origin_y, 0, resize_index * 300])).encode()
                 host.sendall(packet(117, mouse_tag, struct.pack('<I', len(event)) + event))
                 mouse_tag = None; resize_event_due = None
-            if (args.shutdown or (args.tetris_shutdown and tetris_game_at is not None and time.monotonic() - tetris_game_at > 2)) and ready and mouse_tag is not None and shutdown_index < len(shutdown_events) and time.monotonic() >= next_event:
+            if (args.shutdown or radio_closed or (args.tetris_shutdown and tetris_game_at is not None and time.monotonic() - tetris_game_at > 2)) and ready and mouse_tag is not None and shutdown_index < len(shutdown_events) and time.monotonic() >= next_event:
                 x, y, button = shutdown_events[shutdown_index]
                 event = ('m' + ''.join(f'{n:11d} ' for n in [x, y, button, shutdown_index * 300])).encode()
                 host.sendall(packet(117, mouse_tag, struct.pack('<I', len(event)) + event))
@@ -486,7 +489,20 @@ def main():
                 if radio_wheel_after == radio_wheel_before:
                     raise RuntimeError('wheel did not zoom the RadioGlobe')
                 print('PASS: left-button drag rotated and wheel zoomed the RadioGlobe')
-                return
+                radio_wheel_sent_at = None
+                radio_closing = True
+            if radio_closing and radio_close_index < 3 and mouse_tag is not None and time.monotonic() >= next_event:
+                button = (0, 1, 0)[radio_close_index]
+                event = ('m' + ''.join(f'{n:11d} ' for n in [972, 70, button, 13000 + radio_close_index * 300])).encode()
+                host.sendall(packet(117, mouse_tag, struct.pack('<I', len(event)) + event))
+                mouse_tag = None; radio_close_index += 1; next_event = time.monotonic() + 0.4
+            if radio_closing and radio_close_index == 3 and time.monotonic() >= next_event:
+                # Sample the globe and its surround, below the startup window.
+                background = pixels[(530 * screen_width + 1005)*3:(530 * screen_width + 1005)*3+3]
+                if all(pixels[(530 * screen_width + x)*3:(530 * screen_width + x)*3+3] == background
+                       for x in (350, 530, 750)):
+                    print('PASS: RadioGlobe closed from the UI')
+                    radio_closing = False; radio_closed = True; tetris_sent_at = None
             if args.backdrop_select and tetris_sent_at is not None and time.monotonic() - tetris_sent_at > 2 and backdrop_index < 3 and mouse_tag is not None and time.monotonic() >= next_event:
                 if backdrop_index == 0:
                     sample = (300 * screen_width + 800) * 3

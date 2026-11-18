@@ -182,6 +182,10 @@ TYPE
 	END;
 	ActivitySelf* = ProtectedObject;
 	ActivityBody* = Body;
+	DetachedObject* = OBJECT
+		PROCEDURE ScheduleBody*(body: ActivityBody; self: ActivitySelf);
+		BEGIN HALT(101) END ScheduleBody;
+	END DetachedObject;
 	ActivityCondition* = Condition;
 	MonitorCall* = PROCEDURE {DELEGATE}(op: INTEGER; cond: Condition; frame: ADDRESS);
 	ActivityStart* = PROCEDURE {DELEGATE}(body: Body; obj: ProtectedObject): MonitorCall;
@@ -520,15 +524,34 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 	END BindActivityMonitor;
 	#END
 
+	#IF LIGHTWEIGHT THEN
+	PROCEDURE FreeDetachedLock(obj: ANY);
+	VAR lock: LockT;
+	BEGIN
+		lock := obj(LockT);
+		Unix.CondDestroy(lock.enter); Unix.free(lock.enter);
+		Unix.MtxDestroy(lock.mtx); Unix.free(lock.mtx)
+	END FreeDetachedLock;
+	#END
+
 	PROCEDURE CreateProcess*( body: Body;  priority: INTEGER;  flags: SET;  obj: ProtectedObject );
 	VAR p: Process;  hdr{UNTRACED}: ObjectHeader;
 	#IF LIGHTWEIGHT THEN
-	VAR start: ActivityStart; lock: LockT;
+	VAR start: ActivityStart; lock: LockT; instance: ANY;
 	#END
 	BEGIN
 		#IF LIGHTWEIGHT THEN
-		p := CurrentProcess();
-		IF (p # NIL) & ((p.nextActivity # NIL) OR (p.childActivity # NIL)) THEN
+		instance := obj; p := CurrentProcess();
+		IF instance IS DetachedObject THEN
+			IF p # NIL THEN p.nextActivity := NIL END;
+			IF (priority = 0) & (flags = {}) THEN
+				(* Publish the native monitor before scheduling the body. UI callers
+				   and activities on other workers can then enter its methods. *)
+				SYSTEM.GET(SYSTEM.VAL(ADDRESS,obj) + Heaps.HeapBlockOffset, hdr);
+				InitProtHeader(hdr); RegisterFinalizer(hdr.lock, FreeDetachedLock);
+				instance(DetachedObject).ScheduleBody(body, obj); RETURN
+			END
+		ELSIF (p # NIL) & ((p.nextActivity # NIL) OR (p.childActivity # NIL)) THEN
 			start := p.nextActivity; p.nextActivity := NIL;
 			IF start = NIL THEN start := p.childActivity END;
 			ASSERT((priority = 0) & (flags = {}));

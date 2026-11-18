@@ -1,7 +1,7 @@
 MODULE WMRadioGlobe; (** Interactive radio globe based on David Leimbach's 9front radioglobe. *)
 
 IMPORT Math64, Raster, WMGraphics, WMRectangles, WMWindowManager, Strings, Kernel, Modules, WMMessages, Commands, Files,
-	RadioGlobeTexture, RadioStations, RadioGlobeAudio, WMRadioStations, WMGraphicUtilities, KernelLog;
+	RadioGlobeTexture, RadioStations, RadioGlobeAudio, WMRadioStations, WMGraphicUtilities, KernelLog, ServiceActivities;
 
 CONST
 	Width = 900; Height = 800;
@@ -163,7 +163,7 @@ TYPE
 		BEGIN {EXCLUSIVE} alive := FALSE END Stop;
 	END Orbit;
 
-	StatusWatcher = OBJECT
+	StatusWatcher = OBJECT(ServiceActivities.DetachedObject)
 	VAR orbit: Orbit; alive: BOOLEAN; previous, text: ARRAY 1024 OF CHAR; timer: Kernel.Timer;
 		PROCEDURE &Init*(o: Orbit);
 		BEGIN orbit := o; alive := TRUE; NEW(timer); IncWatcher END Init;

@@ -14,7 +14,7 @@ Compiler.Compile -b=ARM --traceModule=Trace --initLocals
 	UTF8Strings.Mod WMMessages.Mod WMRectangles.Mod basel/ARM.A2/ARM.WMRasterScale.Mod
 	WMEvents.Mod SoundDevices.Mod DynamicStrings.Mod XMLObjects.Mod XML.Mod
 	XMLScanner.Mod XMLParser.Mod Configuration.Mod FP1616.Mod Texts.Mod Inflate.Mod CRC.Mod
-	Unzip.Mod Archives.Mod Codecs.Mod Localization.Mod Repositories.Mod Events.Mod
+	Unzip.Mod Archives.Mod Codecs.Mod Localization.Mod Repositories.Mod ServiceActivities.Mod Events.Mod
 	UnicodeProperties.Mod WMGraphics.Mod WMDefaultFont.Mod TextUtilities.Mod Types.Mod Models.Mod
 	WMWindowManager.Mod WMProperties.Mod WMDropTarget.Mod Inputs.Mod WMComponents.Mod
 	WMGraphicUtilities.Mod WMFontManager.Mod WMDefaultWindows.Mod WindowManager.Mod WMStandardComponents.Mod WMPopups.Mod PositionDebugging.Mod
@@ -53,7 +53,7 @@ StaticLinker.Link --fileName=Test.Bin --displacement=100000H -a
 	UTF8Strings WMMessages WMRectangles WMRasterScale
 	WMEvents SoundDevices DynamicStrings XMLObjects XML
 	XMLScanner XMLParser Files Configuration FP1616 Texts Inflate CRC
-	Unzip Archives Codecs Localization Repositories Events
+	Unzip Archives Codecs Localization Repositories ServiceActivities Events
 	UnicodeProperties WMGraphics WMDefaultFont TextUtilities Types Models
 	WMWindowManager WMProperties WMDropTarget Inputs WMComponents
 	WMGraphicUtilities WMFontManager WMDefaultWindows WindowManager WMStandardComponents WMPopups PositionDebugging

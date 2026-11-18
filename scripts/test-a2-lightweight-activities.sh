@@ -57,14 +57,17 @@ if ! "$command_mode"; then
         cd stock
         cp "$work/OberonLoader" .
         export AOSPATH="$PWD:$AOSPATH"
-        run compile -p=DarwinA2 --define=UNIX,AARCH64,DESKTOP Network.Mod Unix.IP.Mod Unix.Sockets.Mod Unix.TCP.Mod Unix.UDP.Mod Unix.DNS.Mod DarwinNetworkProbe.Mod
+        run compile -p=DarwinA2 --define=UNIX,AARCH64,DESKTOP ServiceActivities.Mod Events.Mod Network.Mod Unix.IP.Mod Unix.Sockets.Mod Unix.TCP.Mod Unix.UDP.Mod Unix.DNS.Mod DarwinNetworkProbe.Mod
         export OBERON_CORE="$work/DarwinAosCompilerAa"
+        run do Events.Install
+        grep -F "System event log started." run.log
+        grep -F "System event log shut down." run.log
         run do DarwinNetworkProbe.Run
         grep -F 'NETWORK PASS TCP loopback' run.log
         grep -F 'NETWORK PASS UDP loopback' run.log
     )
 fi
-run compile -p=DarwinA2 --define=UNIX,AARCH64,DESKTOP,LIGHTWEIGHT Events.Mod DarwinDesktopServiceProbe.Mod Network.Mod Unix.IP.Mod Unix.Sockets.Mod Unix.TCP.Mod DarwinTCPActivityProbe.Mod
+run compile -p=DarwinA2 --define=UNIX,AARCH64,DESKTOP,LIGHTWEIGHT Darwin.ServiceActivities.Mod Events.Mod DarwinDesktopServiceProbe.Mod Network.Mod Unix.IP.Mod Unix.Sockets.Mod Unix.TCP.Mod DarwinTCPActivityProbe.Mod
 test -s TCP.GofAa
 test -s DarwinActivitiesProbe.GofAa
 export OBERON_CORE="$work/DarwinAosCompilerAa"
@@ -80,6 +83,11 @@ run do DarwinActivitiesProbe.ServiceLifecycle
 grep -F "PASS two load, delivery, shutdown and unload cycles" run.log
 grep -F "PASS native producer" run.log
 grep -F "System event log shut down." run.log
+(
+    export AOSCONFIG="$AOSCONFIG ActivityWorkers 1 ActivityCommands DarwinDesktopServiceProbe.OpenWatcher:-"
+    run do DarwinDesktopServiceProbe.Detached
+    grep -F "PASS detached ACTIVE" run.log
+)
 run do DarwinTCPActivityProbe.Run
 grep -F "PASS TCP.Available" run.log
 grep -F "PASS TCP setup IPv4" run.log

@@ -464,6 +464,7 @@ PACKAGE System ARCHIVE "System.zip" SOURCE "SystemSrc.zip" DESCRIPTION "System"
 	Options.Mod
 
 	# system event logging
+	ServiceActivities.Mod
 	Events.Mod
 	EventsUtils.Mod
 	EventsKernelLog.Mod EventsFileLog.Mod EventsMemoryLog.Mod

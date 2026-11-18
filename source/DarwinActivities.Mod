@@ -139,6 +139,9 @@ TYPE
 			ASSERT(a.fiber # 0); a.owner := SELF; a.context := Objects.CurrentContext(); INC(live); a.Wake
 		END Start;
 
+		PROCEDURE StartObject*(a: Activity; obj: Objects.ActivitySelf);
+		BEGIN a.subject := obj; Start(a) END StartObject;
+
 		(* Run a command and recursively enroll ordinary NEW active bodies during
 		   its dispatches. Unrelated work on the host still uses native threads. *)
 		PROCEDURE StartTree*(a: Activity);

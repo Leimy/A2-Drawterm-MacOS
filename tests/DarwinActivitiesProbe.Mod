@@ -462,6 +462,7 @@ BEGIN
 		Commands.Activate("DarwinDesktopServiceProbe.Run", context, {Commands.Wait}, res, msg); ASSERT(res = 0);
 		Modules.FreeModule("DarwinDesktopServiceProbe", res, msg); ASSERT(res = 0);
 		Modules.FreeModule("Events", res, msg); ASSERT(res = 0);
+		Modules.FreeModule("ServiceActivities", res, msg); ASSERT(res = 0);
 		Modules.FreeModule("DarwinServices", res, msg); ASSERT(res = 0)
 	END;
 	context.out.String("PASS two load, delivery, shutdown and unload cycles"); context.out.Ln
