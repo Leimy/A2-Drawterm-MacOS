@@ -37,6 +37,7 @@ run compile -p=DarwinA2 CSP.Mod CSPChannels.Mod CSPDemo.Mod ConcurrentSieve.Mod 
 test -s DarwinActivitiesProbe.GofAa
 export OBERON_CORE="$work/DarwinAosCompilerAa"
 run do 'DarwinActivitiesProbe.Run 100000'
+grep -F 'PASS cooperative CPU loops alternate' run.log
 grep -F 'PASS two ACTIVE bodies, contended EXCLUSIVE and 1000 AWAIT exchanges on one pthread' run.log
 grep 'PASS single worker, parked GC and exact sieve through 100000: 9592 activities' run.log
 

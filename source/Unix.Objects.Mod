@@ -246,6 +246,7 @@ TYPE
 		#IF LIGHTWEIGHT THEN
 		stackScanner*: StackScanner;
 		nextActivity*, childActivity*: ActivityStart;
+		checkpointDue*: EventHandler; checkpointBudget*: SIZE;
 		activitySelf*: ActivitySelf;
 		#END
 

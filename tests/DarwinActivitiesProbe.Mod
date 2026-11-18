@@ -156,10 +156,43 @@ BEGIN RunTree(context, FALSE) END Mailboxes;
 PROCEDURE Channels*(context: Commands.Context);
 BEGIN RunTree(context, TRUE) END Channels;
 
+TYPE
+	Compute = OBJECT
+	VAR steps: SIZE; cooperative: BOOLEAN;
+	BEGIN {ACTIVE}
+		WHILE steps < 4 * A.CheckpointInterval DO
+			INC(steps);
+			IF cooperative THEN A.Checkpoint END
+		END
+	END Compute;
+
+PROCEDURE CheckFairness(context: Commands.Context);
+VAR scheduler: A.Scheduler; first, second, solo: Compute; turn: SIZE;
+BEGIN
+	NEW(scheduler);
+	scheduler.NextActive; NEW(first); scheduler.NextActive; NEW(second);
+	ASSERT(scheduler.Dispatch());
+	ASSERT((first.steps = 4 * A.CheckpointInterval) & (second.steps = 0));
+	ASSERT(scheduler.Dispatch()); ASSERT(scheduler.live = 0);
+
+	scheduler.NextActive; NEW(first); first.cooperative := TRUE;
+	scheduler.NextActive; NEW(second); second.cooperative := TRUE;
+	FOR turn := 1 TO 4 DO
+		ASSERT(scheduler.Dispatch());
+		ASSERT((first.steps = turn * A.CheckpointInterval) & (second.steps = (turn-1) * A.CheckpointInterval));
+		ASSERT(scheduler.Dispatch()); ASSERT(second.steps = first.steps)
+	END;
+	WHILE scheduler.Dispatch() DO END;
+	scheduler.NextActive; NEW(solo); solo.cooperative := TRUE;
+	ASSERT(scheduler.Dispatch()); ASSERT((solo.steps = 4 * A.CheckpointInterval) & (scheduler.live = 0));
+	scheduler.Close;
+	context.out.String("PASS cooperative CPU loops alternate every 256 checkpoints; unchecked loop occupies one turn"); context.out.Ln
+END CheckFairness;
+
 PROCEDURE Run*(context: Commands.Context);
 VAR trial: Trial; first: Filter; probe: GCProbe; limit: SIGNED32; value, factor, expected: SIZE; composite: POINTER TO ARRAY OF BOOLEAN;
 BEGIN
-	CheckMonitors(context);
+	CheckFairness(context); CheckMonitors(context);
 	limit := 100000;
 	context.arg.SkipWhitespace; IF context.arg.Peek() > " " THEN context.arg.Int(limit,FALSE) END;
 	ASSERT((limit >= 2) & (limit <= 100000));

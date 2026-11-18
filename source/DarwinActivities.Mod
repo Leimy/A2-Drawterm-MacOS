@@ -3,6 +3,8 @@ MODULE DarwinActivities;
     A2 process that constructs them. Park and Yield can be called at depth. *)
 IMPORT SYSTEM, Glue, Unix, Objects, Heaps, Machine, Modules;
 
+CONST CheckpointInterval* = 256; (* explicit work checkpoints per turn *)
+
 TYPE
 	Activity* = OBJECT
 	VAR owner: Scheduler; next: Activity; fiber: ADDRESS; queued: BOOLEAN;
@@ -138,6 +140,12 @@ TYPE
 		PROCEDURE YieldCurrent*;
 		BEGIN ASSERT(worker = Objects.CurrentProcess()); running.Yield END YieldCurrent;
 
+		PROCEDURE BudgetExpired;
+		BEGIN
+			worker.checkpointBudget := CheckpointInterval;
+			IF head # NIL THEN running.Yield END
+		END BudgetExpired;
+
 		PROCEDURE Dispatch*(): BOOLEAN;
 		VAR a: Activity; hostContext: ANY; done: BOOLEAN;
 		BEGIN
@@ -147,7 +155,9 @@ TYPE
 			a.next := NIL; a.queued := FALSE; running := a;
 			hostContext := Objects.CurrentContext(); Objects.SetContext(a.context); worker.activitySelf := a.subject;
 			IF a.children THEN worker.childActivity := Adopt END;
-			done := resume(a.fiber) # 0; worker.childActivity := NIL;
+			worker.checkpointBudget := CheckpointInterval; worker.checkpointDue := BudgetExpired;
+			done := resume(a.fiber) # 0;
+			worker.checkpointDue := NIL; worker.childActivity := NIL;
 			worker.activitySelf := NIL; a.context := Objects.CurrentContext(); Objects.SetContext(hostContext);
 			IF done THEN
 				ASSERT(~a.queued);
@@ -173,6 +183,18 @@ VAR library: ADDRESS;
 	resume: PROCEDURE {C}(fiber: ADDRESS): SIGNED32;
 	park, drop, close: PROCEDURE {C}(handle: ADDRESS);
 	roots: PROCEDURE {C}(pool, sp, bottom: ADDRESS; visit: PROCEDURE {C}(adr: ADDRESS; size: SIZE));
+
+(* Call between bounded chunks of CPU work, outside locks and AWAIT predicates.
+   A native caller or a host between dispatches has no cooperative budget. *)
+PROCEDURE Checkpoint*;
+VAR worker: Objects.Process;
+BEGIN
+	worker := Objects.CurrentProcess();
+	IF (worker # NIL) & (worker.checkpointDue # NIL) THEN
+		DEC(worker.checkpointBudget);
+		IF worker.checkpointBudget = 0 THEN worker.checkpointDue() END
+	END
+END Checkpoint;
 
 PROCEDURE {C} Enter(arg: ADDRESS);
 VAR a: Activity;
