@@ -651,6 +651,24 @@ VAR
 	END getnprocs;
 
 
+	#IF AARCH64 THEN
+	(* Apple's arm64 C ABI puts unnamed arguments on the stack. Fox's C
+	   procedure types describe fixed arguments. Fill x2..x7 so the final
+	   argument occupies the first outgoing stack slot, as libc expects. *)
+	TYPE Variadic2 = PROCEDURE {C}(first, second, x2, x3, x4, x5, x6, x7, stackArg: ADDRESS): SIGNED32;
+	VAR nativeOpen, nativeIoctl: Variadic2;
+
+	PROCEDURE {C} OpenWithMode(path: ADDRESS; flags: SET32; mode: mode_t): SIGNED32;
+	BEGIN {UNTRACKED}
+		RETURN nativeOpen(path, S.VAL(UNSIGNED32, flags), 0, 0, 0, 0, 0, 0, UNSIGNED16(mode))
+	END OpenWithMode;
+
+	PROCEDURE {C} IoctlWithPointer(fd, request: SIGNED32; arg: ADDRESS): SIGNED32;
+	BEGIN {UNTRACKED}
+		RETURN nativeIoctl(fd, UNSIGNED32(request), 0, 0, 0, 0, 0, 0, arg)
+	END IoctlWithPointer;
+	#END
+
 	PROCEDURE NewKey*( ): Key_t;
 	VAR
 		key: Key_t;
@@ -1237,12 +1255,16 @@ VAR
 		Dlsym( libc, "pread",		ADDRESSOF( pread ) );
 		Dlsym( libc, "write",		ADDRESSOF( write ) );
 		Dlsym( libc, "pwrite",		ADDRESSOF( pwrite ) );
-		Dlsym( libc, "open",			ADDRESSOF( open ) );
+		#IF AARCH64 THEN
+		Dlsym(libc, "open", ADDRESSOF(nativeOpen)); open := OpenWithMode;
+		Dlsym(libc, "ioctl", ADDRESSOF(nativeIoctl)); ioctl := IoctlWithPointer;
+		#ELSE
+		Dlsym(libc, "open", ADDRESSOF(open)); Dlsym(libc, "ioctl", ADDRESSOF(ioctl));
+		#END
 		Dlsym( libc, "close",		ADDRESSOF( close ) );
 		Dlsym( libc, "lseek",		ADDRESSOF( lseek ) );
 		Dlsym( libc, "realpath",	ADDRESSOF( realpath ) );
 		Dlsym( libc, "fsync",		ADDRESSOF( fsync ) );
-		Dlsym( libc, "ioctl",		ADDRESSOF( ioctl ) );
 		Dlsym( libc, "unlink",		ADDRESSOF( unlink ) );
 		Dlsym( libc, "rename",		ADDRESSOF( rename ) );
 		Dlsym( libc, "ftruncate",	ADDRESSOF( ftruncate ) );

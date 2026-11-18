@@ -274,10 +274,24 @@ BEGIN
 	context.out.String("PASS 24 TCP clients, 24 echo handlers and a listener on one pthread"); context.out.Ln
 END FanIn;
 
+PROCEDURE CheckAvailable(context: Commands.Context);
+VAR c: TCP.Connection; peer, res: INTEGER; n: SIZE; data: ARRAY 4 OF CHAR;
+BEGIN
+	Loopback(c, peer); ASSERT(c.Available() = 0);
+	data := "abc"; n := LEN(data); ASSERT(Sockets.Send(peer, data, 0, n) & (n = LEN(data)));
+	(* Receive one byte, so the remaining three are known to be on this endpoint. *)
+	c.Receive(data, 0, 1, 1, n, res); ASSERT((res = TCP.Ok) & (n = 1));
+	ASSERT(c.Available() = 3);
+	c.Receive(data, 0, 3, 3, n, res); ASSERT((res = TCP.Ok) & (n = 3) & (c.Available() = 0));
+	c.Close; Sockets.Close(peer);
+	context.out.String("PASS TCP.Available reports unread bytes after a partial read"); context.out.Ln
+END CheckAvailable;
+
 PROCEDURE Run*(context: Commands.Context);
 VAR c: TCP.Connection; peer, mode, res: SIGNED32; s: A.Scheduler; r: Reader; w: Writer; native: DelayedPeer;
 	n: SIZE; buf: ARRAY 1 OF CHAR;
 BEGIN
+	CheckAvailable(context);
 	CheckSetup(context, IP.Nil4Adr, IP.StrToAdr("127.0.0.1"), Unix.AFINET);
 	CheckSetup(context, IP.Nil6Adr, IP.StrToAdr("::1"), Unix.AFINET6); CheckSend(context);
 	FOR mode := 0 TO 2 DO

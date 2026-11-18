@@ -75,6 +75,7 @@ if "$command_mode"; then
     exit $?
 fi
 run do DarwinTCPActivityProbe.Run
+grep -F "PASS TCP.Available" run.log
 grep -F "PASS TCP setup IPv4" run.log
 grep -F "PASS TCP setup IPv6" run.log
 grep -F "PASS TCP.Send: parked writer" run.log
@@ -84,13 +85,16 @@ grep -F "PASS TCP.Receive loopback" run.log
     run do DarwinTCPActivityProbe.FanIn
     grep -F 'PASS 24 TCP clients' run.log
 )
-run compile -p=DarwinA2 DarwinLoopCheckpointProbe.Mod
-# The rebuilt compiler can create objects without owner read permission.
-chmod u+rw DarwinLoopCheckpointProbe.GofAa DarwinLoopCheckpointProbe.SymAa
+# The source-built runtime requests 0664 for new files. Verify libc received
+# that mode and applied the process umask to both compiler artifacts.
+(umask 027; run compile -p=DarwinA2 DarwinLoopCheckpointProbe.Mod)
+for file in DarwinLoopCheckpointProbe.GofAa DarwinLoopCheckpointProbe.SymAa; do
+    test "$(stat -f '%Lp' "$file")" = 640
+done
+echo 'PASS generated object and symbol permissions honor umask 027'
 run do DarwinLoopCheckpointProbe.Control
 grep -F 'PASS default compilation' run.log
 run compile -p=DarwinA2 --activityCheckpoints DarwinLoopCheckpointProbe.Mod
-chmod u+rw DarwinLoopCheckpointProbe.GofAa DarwinLoopCheckpointProbe.SymAa
 run do DarwinLoopCheckpointProbe.Run
 grep -F 'PASS compiler checkpoints' run.log
 run do 'DarwinActivitiesProbe.Run 100000'
