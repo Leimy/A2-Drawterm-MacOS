@@ -10,7 +10,7 @@ MODULE Sockets;	(** AUTHOR "G.F.";  PURPOSE "Interface to Unix sockets" *)
 (*	2007.07.06	g.f.	IP address format converted to IP.Adr *)
 (*  	2020.04.06  PDR     perror on socket failure*)
 
-IMPORT S := SYSTEM, Unix, Trace, IP;
+IMPORT S := SYSTEM, Unix, Trace, IP, Objects;
 
 CONST
 
@@ -161,6 +161,11 @@ VAR
 		RETURN err = 0
 	END Bind;
 
+	#IF LIGHTWEIGHT THEN
+	PROCEDURE ShutdownReadWrite*(s: INTEGER);
+	BEGIN IGNORE shutdown(s, Unix.ShutRDWR) END ShutdownReadWrite;
+	#END
+
 	PROCEDURE Close*( s: INTEGER );
 	BEGIN
 		IGNORE shutdown( s, Unix.ShutRDWR );
@@ -216,17 +221,30 @@ VAR
 
 	PROCEDURE Recv*( s: INTEGER; VAR buf: ARRAY OF CHAR; pos: SIZE; VAR len: SIZE; flags: INTEGER ): BOOLEAN;
 	VAR res: SIZE; err: INTEGER;
+	#IF LIGHTWEIGHT THEN
+	VAR p: Objects.Process;
+	#END
 	BEGIN
+		#IF LIGHTWEIGHT THEN
+		p := Objects.CurrentProcess();
+		IF (p # NIL) & (p.awaitReadable # NIL) & (flags = 0) THEN
+			LOOP
+				res := recv(s, ADDRESSOF(buf[pos]), len, Unix.MsgDontWait);
+				IF res >= 0 THEN len := res; RETURN TRUE END;
+				err := Unix.errno();
+				IF err = Unix.EAGAIN THEN
+					IF ~p.awaitReadable(s) THEN EXIT END
+				ELSIF err # Unix.EINTR THEN EXIT END
+			END;
+			len := 0; RETURN FALSE
+		END;
+		#END
 		REPEAT
-			res := recv( s, ADDRESSOF( buf[pos] ), len, flags );
-			IF res < 0 THEN  err := Unix.errno()  END
+			res := recv(s, ADDRESSOF(buf[pos]), len, flags);
+			IF res < 0 THEN err := Unix.errno() END
 		UNTIL (res >= 0) OR (err # Unix.EINTR);
-		IF err >= 0 THEN
-			len:= res;  RETURN TRUE
-		ELSE
-			Unix.Perror( "Sockets.Recv" );
-			len:= 0;  RETURN FALSE
-		END
+		IF res >= 0 THEN len := res; RETURN TRUE END;
+		Unix.Perror("Sockets.Recv"); len := 0; RETURN FALSE
 	END Recv;
 
 	PROCEDURE Send*( s: INTEGER; CONST buf: ARRAY OF CHAR; pos: SIZE; VAR len: SIZE ): BOOLEAN;

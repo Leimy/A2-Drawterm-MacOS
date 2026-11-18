@@ -48,6 +48,12 @@ run() {
 run execute core.txt
 grep -q 'Link successful' run.log
 run compile -p=DarwinA2 CSP.Mod CSPChannels.Mod CSPDemo.Mod ConcurrentSieve.Mod DarwinActivities.Mod DarwinCommandWorkers.Mod DarwinActivitiesProbe.Mod
+# Networking needs the corrected Darwin errno constant in the symbol file.
+# Keep the bootstrap Unix implementation linked into the experimental core.
+run compile -p=DarwinA2 --traceModule=Trace --define=UNIX,AARCH64,DESKTOP Darwin.Unix.Mod
+run compile -p=DarwinA2 --define=UNIX,AARCH64,DESKTOP Network.Mod Unix.IP.Mod Unix.Sockets.Mod Unix.TCP.Mod
+run compile -p=DarwinA2 --define=UNIX,AARCH64,DESKTOP,LIGHTWEIGHT Network.Mod Unix.IP.Mod Unix.Sockets.Mod Unix.TCP.Mod DarwinTCPActivityProbe.Mod
+test -s TCP.GofAa
 test -s DarwinActivitiesProbe.GofAa
 export OBERON_CORE="$work/DarwinAosCompilerAa"
 routes='ConcurrentSieve.Run:ConcurrentSieve,CSPDemo.Run:CSP'
@@ -56,6 +62,8 @@ if "$command_mode"; then
     ./OberonLoader do "$2"
     exit $?
 fi
+run do DarwinTCPActivityProbe.Run
+grep -F "PASS TCP.Receive loopback" run.log
 run compile -p=DarwinA2 DarwinLoopCheckpointProbe.Mod
 # The rebuilt compiler can create objects without owner read permission.
 chmod u+rw DarwinLoopCheckpointProbe.GofAa DarwinLoopCheckpointProbe.SymAa
@@ -144,5 +152,12 @@ export AOSCONFIG="$base_config ActivityWorkers 1 ActivityCommands DarwinActiviti
 if ! with_deadline 20 ./OberonLoader do DarwinActivitiesProbe.CheckSocketRecovery > socketwait.log 2>&1 ||
    ! grep -aF 'PASS quiet socket cancellation' socketwait.log; then
     cat socketwait.log >&2
+    exit 1
+fi
+
+export AOSCONFIG="$base_config ActivityWorkers 1 ActivityCommands DarwinTCPActivityProbe.TrapReceive:-"
+if ! with_deadline 20 ./OberonLoader do DarwinTCPActivityProbe.CheckCancellation > tcpwait.log 2>&1 ||
+   ! grep -aF 'PASS cancellation releases the TCP reader' tcpwait.log; then
+    cat tcpwait.log >&2
     exit 1
 fi

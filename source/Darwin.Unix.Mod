@@ -39,7 +39,7 @@ CONST
 	ENOEXEC* = 8;   (* Exec format error *)
 	EBADF* = 9;   (* Bad file number *)
 	ECHILD* = 10;   (* No children *)
-	EAGAIN* = 11;   (* No more processes *)
+	EAGAIN* = 35;   (* Resource temporarily unavailable; also EWOULDBLOCK *)
 	ENOMEM* = 12;   (* Not enough core *)
 	EACCES* = 13;   (* Permission denied *)
 	EFAULT* = 14;   (* Bad address *)

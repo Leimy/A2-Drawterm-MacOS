@@ -58,6 +58,34 @@ TYPE
 	END Sender;
 
 
+#IF LIGHTWEIGHT THEN
+TYPE
+	(* Release this monitor before a blocking read or a fiber park. A concurrent
+	   Close shuts the socket down immediately, then the last reader closes it. *)
+	ReceiveState = OBJECT
+	VAR reading: BOOLEAN;
+		PROCEDURE Acquire(c: Connection): BOOLEAN;
+		BEGIN {EXCLUSIVE}
+			AWAIT(~reading); reading := c.state IN OpenStates; RETURN reading
+		END Acquire;
+
+		PROCEDURE Finish(c: Connection; failed: BOOLEAN);
+		BEGIN {EXCLUSIVE}
+			IF c.state = Closed THEN IGNORE Unix.close(c.socket)
+			ELSIF failed THEN Sockets.Close(c.socket); c.state := Closed END;
+			reading := FALSE
+		END Finish;
+
+		PROCEDURE Close(c: Connection);
+		BEGIN {EXCLUSIVE}
+			IF c.state IN OpenStates THEN
+				c.state := Closed;
+				IF reading THEN Sockets.ShutdownReadWrite(c.socket) ELSE Sockets.Close(c.socket) END
+			END
+		END Close;
+	END ReceiveState;
+#END
+
 TYPE
 	(** Connection object.
 		NOTE: Only one process should access a Connection!  *)
@@ -80,10 +108,17 @@ TYPE
 				sndnxt-	: SIGNED32;	(* send next *)
 
 
+				#IF LIGHTWEIGHT THEN
+				VAR receiver: ReceiveState;
+				#END
+
 				PROCEDURE & Init*;
 				BEGIN
 					state := Unused;
 					NEW( sender, SELF );
+					#IF LIGHTWEIGHT THEN
+					NEW(receiver);
+					#END
 					irs := 0; iss := 0;  rcvnxt := 0;  sndnxt := 0
 				END Init;
 
@@ -169,6 +204,18 @@ TYPE
 					INC( sndnxt )
 				END Send;
 
+				PROCEDURE ReadBytes(VAR data: ARRAY OF CHAR; ofs, size, min: SIZE; VAR len: SIZE; VAR res: INTEGER);
+				VAR x: SIZE;
+				BEGIN
+					IF trace THEN Out.String("Receive: socket="); Out.Int(socket, 0); Out.String(" min="); Out.Int(min, 0) END;
+					REPEAT
+						x := size;
+						IF ~Sockets.Recv(socket, data, ofs, x, 0) OR (x = 0) THEN res := NotConnected; RETURN END;
+						DEC(size, x); INC(len, x); INC(ofs, x)
+					UNTIL len >= min;
+					INC(rcvnxt)
+				END ReadBytes;
+
 				(** Receive data on a TCP connection. The data parameter specifies the buffer.
 					The ofs parameters specify the position in the buffer where data should be received (usually 0),
 					and the size parameters specifies how many bytes of data can be received in the buffer.
@@ -177,44 +224,34 @@ TYPE
 					res parameter returns 0 if ok, or a non-zero error code otherwise (e.g. if the connection is closed
 					by the communication partner, or by a call of the Close method). *)
 
-				PROCEDURE Receive*( VAR data: ARRAY OF CHAR;  ofs, size, min: SIZE;  VAR len: SIZE; VAR res: INTEGER );
-				VAR p, x: SIZE;
-				BEGIN {EXCLUSIVE}
-					ASSERT( (ofs >= 0) & (ofs + size <= LEN( data )) & (min <= size) );   (* parameter consistency check *)
-					IF trace THEN
-						Out.String( "Receive: socket=" );  Out.Int( socket, 0 );
-						Out.String( " min=" );  Out.Int( min, 0 );
-						p := ofs
+				#IF LIGHTWEIGHT THEN
+				PROCEDURE Receive*(VAR data: ARRAY OF CHAR; ofs, size, min: SIZE; VAR len: SIZE; VAR res: INTEGER);
+				VAR acquired, completed: BOOLEAN;
+				BEGIN
+					ASSERT((ofs >= 0) & (size >= 0) & (ofs <= LEN(data)-size) & (min <= size));
+					len := 0; res := Ok;
+					IF size > 0 THEN
+						acquired := receiver.Acquire(SELF);
+						IF acquired THEN ReadBytes(data, ofs, size, min, len, res)
+						ELSE res := NotConnected; INC(rcvnxt) END
 					END;
-					len := 0;  res := Ok;
-					IF size = 0 THEN  RETURN  END;
-					IF state IN {Listen, Established} THEN
-						LOOP
-							x := size;
-							IF Sockets.Recv( socket, data, ofs, x, 0 ) THEN
-								IF x > 0 THEN
-									DEC( size, x );  INC( len, x );  INC( ofs, x );
-									IF len >= min THEN
-										INC( rcvnxt );
-										RETURN
-									END
-								ELSE
-									(* x = 0: closed by peer *)
-									Sockets.Close( socket );  state := Closed;
-									res := NotConnected;  RETURN
-								END
-							ELSE
-								Sockets.Close( socket );  state := Closed;
-								res := NotConnected;  RETURN
-							END
-						END; (* loop *)
-					ELSE
-						res := NotConnected
-					END;
-					INC( rcvnxt )
+					completed := TRUE
+				FINALLY
+					IF acquired THEN receiver.Finish(SELF, ~completed OR (res # Ok)) END;
+					IF ~completed THEN HALT(18) END (* rethrow after releasing the reader *)
 				END Receive;
-
-
+				#ELSE
+				PROCEDURE Receive*(VAR data: ARRAY OF CHAR; ofs, size, min: SIZE; VAR len: SIZE; VAR res: INTEGER);
+				BEGIN {EXCLUSIVE}
+					ASSERT((ofs >= 0) & (size >= 0) & (ofs <= LEN(data)-size) & (min <= size));
+					len := 0; res := Ok;
+					IF size = 0 THEN RETURN END;
+					IF state IN OpenStates THEN
+						ReadBytes(data, ofs, size, min, len, res);
+						IF res # Ok THEN Sockets.Close(socket); state := Closed END
+					ELSE res := NotConnected; INC(rcvnxt) END
+				END Receive;
+				#END
 
 				(** Enable or disable delayed send (Nagle algorithm).
 					If enabled, the sending of a segment is delayed if it is not filled by one call to Send, in order to be able
@@ -273,13 +310,17 @@ TYPE
 				(** Close a TCP connection (half-close). *)
 				PROCEDURE Close*;
 				BEGIN
-					Sockets.Close( socket );  state := Closed;
+					#IF LIGHTWEIGHT THEN
+					receiver.Close(SELF)
+					#ELSE
+					Sockets.Close(socket); state := Closed
+					#END
 				END Close;
 
 				(** Discard a TCP connection (shutdown). *)
 				PROCEDURE Discard*;
 				BEGIN
-					Sockets.Close( socket );  state := Closed;
+					Close
 				END Discard;
 
 				(** Accept a client waiting on a listening connection. Blocks until a client is available or the
