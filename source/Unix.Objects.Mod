@@ -665,6 +665,18 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 		RETURN SYSTEM.VAL( Process , Unix.ReadKey( processPointer ) )
 	END CurrentProcess;
 
+	#IF LIGHTWEIGHT THEN
+	PROCEDURE ActivityCheckpoint*;
+	VAR worker: Process;
+	BEGIN
+		worker := CurrentProcess();
+		IF (worker # NIL) & (worker.checkpointDue # NIL) THEN
+			DEC(worker.checkpointBudget);
+			IF worker.checkpointBudget = 0 THEN worker.checkpointDue() END
+		END
+	END ActivityCheckpoint;
+	#END
+
 	PROCEDURE CurrentContext*(): ANY;
 	VAR p : Process;
 	BEGIN

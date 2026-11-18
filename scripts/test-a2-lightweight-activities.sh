@@ -36,6 +36,15 @@ grep -q 'Link successful' run.log
 run compile -p=DarwinA2 CSP.Mod CSPChannels.Mod CSPDemo.Mod ConcurrentSieve.Mod DarwinActivities.Mod DarwinActivitiesProbe.Mod
 test -s DarwinActivitiesProbe.GofAa
 export OBERON_CORE="$work/DarwinAosCompilerAa"
+run compile -p=DarwinA2 DarwinLoopCheckpointProbe.Mod
+# The rebuilt compiler can create objects without owner read permission.
+chmod u+rw DarwinLoopCheckpointProbe.GofAa DarwinLoopCheckpointProbe.SymAa
+run do DarwinLoopCheckpointProbe.Control
+grep -F 'PASS default compilation' run.log
+run compile -p=DarwinA2 --activityCheckpoints DarwinLoopCheckpointProbe.Mod
+chmod u+rw DarwinLoopCheckpointProbe.GofAa DarwinLoopCheckpointProbe.SymAa
+run do DarwinLoopCheckpointProbe.Run
+grep -F 'PASS compiler checkpoints' run.log
 run do 'DarwinActivitiesProbe.Run 100000'
 grep -F 'PASS cooperative CPU loops alternate' run.log
 grep -F 'PASS two ACTIVE bodies, contended EXCLUSIVE and 1000 AWAIT exchanges on one pthread' run.log

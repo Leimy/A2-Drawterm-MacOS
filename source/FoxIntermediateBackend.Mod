@@ -1296,7 +1296,7 @@ TYPE
 		moduleBodySection: IntermediateCode.Section;
 		NeedDescriptor : BOOLEAN;
 
-		cooperativeSwitches: BOOLEAN;
+		cooperativeSwitches, loopCheckpoints: BOOLEAN;
 		lastSwitchPC: SIZE;
 
 		isUnchecked: BOOLEAN;
@@ -11149,6 +11149,13 @@ TYPE
 			IF Trace THEN TraceExit("VisitCaseStatement") END;
 		END CaseStatement;
 
+		PROCEDURE EmitLoopCheckpoint;
+		BEGIN
+			IF cooperativeSwitches THEN EmitCooperativeSwitch
+			ELSIF loopCheckpoints THEN CallThis(position,"Objects","ActivityCheckpoint",0)
+			END
+		END EmitLoopCheckpoint;
+
 		PROCEDURE WhileStatement(x: SyntaxTree.WhileStatement);
 		VAR startL,falseL: Label;
 		BEGIN
@@ -11159,7 +11166,7 @@ TYPE
 			SetLabel(startL);
 			Condition(x.condition,falseL,FALSE);
 			StatementSequence(x.statements);
-			IF cooperativeSwitches THEN EmitCooperativeSwitch END;
+			EmitLoopCheckpoint;
 			BrL(startL);
 			SetLabel(falseL);
 			IF Trace THEN TraceExit("VisitWhileStatement") END;
@@ -11173,7 +11180,7 @@ TYPE
 			falseL := NewLabel();
 			SetLabel(falseL);
 			StatementSequence(x.statements);
-			IF cooperativeSwitches THEN EmitCooperativeSwitch END;
+			EmitLoopCheckpoint;
 			Condition(x.condition,falseL,FALSE);
 			IF Trace THEN TraceExit("VisitRepeatStatement") END;
 		END RepeatStatement;
@@ -11213,7 +11220,7 @@ TYPE
 			binary.SetType(x.variable.type);
 			Assign(x.variable,binary);
 
-			IF cooperativeSwitches THEN EmitCooperativeSwitch END;
+			EmitLoopCheckpoint;
 
 			BrL(startL);
 			SetLabel(falseL);
@@ -11243,7 +11250,7 @@ TYPE
 			SetLabel(start);
 			currentLoop := NewLabel();
 			StatementSequence(x.statements);
-			IF cooperativeSwitches THEN EmitCooperativeSwitch END;
+			EmitLoopCheckpoint;
 			BrL(start);
 			SetLabel(currentLoop);
 			currentLoop := prevLoop;
@@ -11541,7 +11548,7 @@ TYPE
 		END Lock;
 
 		PROCEDURE StatementBlock(x: SyntaxTree.StatementBlock);
-		VAR previouslyUnchecked, previouslyUntracked, previouslyCooperativeSwitches: BOOLEAN; end: Label;
+		VAR previouslyUnchecked, previouslyUntracked, previouslyCooperativeSwitches, previouslyLoopCheckpoints: BOOLEAN; end: Label;
 			prevScope: SyntaxTree.Scope;
 		BEGIN
 			IF Trace THEN TraceEnter("VisitStatementBlock") END;
@@ -11551,6 +11558,8 @@ TYPE
 			previouslyUntracked := isUntracked;
 			isUnchecked := isUnchecked OR x.isUnchecked;
 			isUntracked := isUntracked OR x.isUntracked;
+			previouslyLoopCheckpoints := loopCheckpoints;
+			loopCheckpoints := loopCheckpoints & ~x.isExclusive & ~x.isUncooperative & ~x.isUntracked;
 			previouslyCooperativeSwitches := cooperativeSwitches;
 			cooperativeSwitches := cooperativeSwitches & ~x.isUncooperative;
 			prevScope := currentScope;
@@ -11579,6 +11588,7 @@ TYPE
 			isUnchecked := previouslyUnchecked;
 			isUntracked := previouslyUntracked;
 			cooperativeSwitches := previouslyCooperativeSwitches;
+			loopCheckpoints := previouslyLoopCheckpoints;
 			currentScope := prevScope;
 			IF Trace THEN TraceExit("VisitStatementBlock") END;
 		END StatementBlock;
@@ -11755,6 +11765,7 @@ TYPE
 
 			lastSwitchPC := 0;
 			cooperativeSwitches := backend.cooperative;
+			loopCheckpoints := backend.activityCheckpoints & ~backend.cooperative & (x # NIL) & x.isActive;
 
 			procedure := scope(SyntaxTree.ProcedureScope).ownerProcedure;
 			procedureType := procedure.type(SyntaxTree.ProcedureType);
@@ -14188,7 +14199,7 @@ TYPE
 		dump-: Basic.Writer;
 		cellsAreObjects: BOOLEAN;
 		preciseGC-, trackLeave, writeBarriers: BOOLEAN;
-		experiment: BOOLEAN;
+		experiment, activityCheckpoints: BOOLEAN;
 
 		PROCEDURE &InitIntermediateBackend*;
 		BEGIN
@@ -14347,6 +14358,9 @@ TYPE
 			options.Add(0X,"trackLeave", Options.Flag);
 			options.Add(0X,"writeBarriers", Options.Flag);
 			options.Add(0X,"experiment", Options.Flag);
+			#IF LIGHTWEIGHT THEN
+			options.Add(0X,"activityCheckpoints", Options.Flag);
+			#END
 		END DefineOptions;
 
 		PROCEDURE GetOptions*(options: Options.Options);
@@ -14375,6 +14389,9 @@ TYPE
 			trackLeave := options.GetFlag("trackLeave");
 			writeBarriers := options.GetFlag("writeBarriers");
 			experiment := options.GetFlag("experiment");
+			#IF LIGHTWEIGHT THEN
+			activityCheckpoints := options.GetFlag("activityCheckpoints");
+			#END
 			IF simpleMetaData THEN preciseGC := FALSE END;
 		END GetOptions;
 

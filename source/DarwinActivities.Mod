@@ -187,14 +187,7 @@ VAR library: ADDRESS;
 (* Call between bounded chunks of CPU work, outside locks and AWAIT predicates.
    A native caller or a host between dispatches has no cooperative budget. *)
 PROCEDURE Checkpoint*;
-VAR worker: Objects.Process;
-BEGIN
-	worker := Objects.CurrentProcess();
-	IF (worker # NIL) & (worker.checkpointDue # NIL) THEN
-		DEC(worker.checkpointBudget);
-		IF worker.checkpointBudget = 0 THEN worker.checkpointDue() END
-	END
-END Checkpoint;
+BEGIN Objects.ActivityCheckpoint END Checkpoint;
 
 PROCEDURE {C} Enter(arg: ADDRESS);
 VAR a: Activity;
