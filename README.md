@@ -8,6 +8,38 @@ Active Oberon enthusiast; it is an independent preview, not an ETH release.
 [Download the Apple Silicon readiness preview](https://github.com/Leimy/A2-Drawterm-MacOS/releases/tag/preview-2026-11-13-readiness),
 including drawterm and the native compiler toolchain.
 
+### Lightweight active objects on Apple Silicon
+
+The opt-in lightweight runtime lets many Active Oberon objects share a worker
+thread. Each activity keeps its own stack. When it parks in `AWAIT`, timed
+sleep, or a supported TCP operation, the worker can run another activity.
+CPU-bound loops in an `{ACTIVE}` body can also cooperate when compiled with
+`--activityCheckpoints`.
+
+**Try it in Terminal.** From the source checkout on an Apple Silicon Mac with
+the Xcode command-line tools, point `A2_COMPILER_LIBRARY` at the extracted
+preview's `toolchain` directory. If your checkout already has
+`build/native-toolchain`, you can omit the first line.
+
+```sh
+export A2_COMPILER_LIBRARY="/path/to/A2-Darwin-arm64-preview/toolchain"
+A2_ACTIVITY_WORKERS=1 scripts/test-a2-lightweight-activities.sh --do 'ConcurrentSieve.Run 1000'
+```
+
+The script builds a temporary runtime and runs the sieve without opening the
+desktop. The sieve creates an ordinary active filter for each prime using
+`NEW`. All 168 filters run on one worker and finish before the command returns.
+[Sieve source](source/ConcurrentSieve.Mod)
+
+**Use it in a desktop application.** RadioGlobe declares its watcher as
+`StatusWatcher = OBJECT(ServiceActivities.DetachedObject)` and starts it with
+`NEW(watcher, orbit)`. Its ordinary `BEGIN {ACTIVE}` body survives the return
+from `Open`. The UI calls `watcher.Stop` when the window closes. The build
+selects the shared worker on the lightweight desktop or an ordinary active
+object on portable A2. To try the watcher, build the `desktop-lightweight`
+target and open **Demos → RadioGlobe**. [Watcher source](source/WMRadioGlobe.Mod)
+· [Desktop build and launch instructions](README-native-desktop.md#experimental-desktop-with-lightweight-activities)
+
 ### RadioGlobe on macOS
 
 The native Apple Silicon desktop includes RadioGlobe, based on

@@ -13,7 +13,10 @@ seed=${A2_COMPILER_LIBRARY:-$repo/build/native-toolchain}
 seed=$(CDPATH= cd -- "$seed" && pwd)
 work=$(mktemp -d "${TMPDIR:-/tmp}/a2-activities.XXXXXX")
 trap 'rm -rf "$work"' EXIT
-cp "$seed/OberonLoader" "$work/"
+loader=$seed/OberonLoader
+# The packaged preview shares its loader between the desktop and toolchain.
+if [ ! -x "$loader" ]; then loader=$seed/../OberonLoader; fi
+cp "$loader" "$work/"
 cc -arch arm64 -O2 -dynamiclib -Wall -Wextra -Werror -Wno-deprecated-declarations \
     "$repo/UnixAos/boot/DarwinActivities.c" -o "$work/libA2Activities.dylib"
 cd "$work"
