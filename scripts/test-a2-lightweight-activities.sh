@@ -66,6 +66,8 @@ chmod u+rw DarwinLoopCheckpointProbe.GofAa DarwinLoopCheckpointProbe.SymAa
 run do DarwinLoopCheckpointProbe.Run
 grep -F 'PASS compiler checkpoints' run.log
 run do 'DarwinActivitiesProbe.Run 100000'
+grep -F 'PASS competing native-monitor' run.log
+grep -F 'PASS 1000 native/fiber' run.log
 grep -F 'PASS 128 lightweight activities on two distinct pthreads' run.log
 grep -F 'PASS cooperative CPU loops alternate' run.log
 grep -F 'PASS two ACTIVE bodies, contended EXCLUSIVE and 1000 AWAIT exchanges on one pthread' run.log
@@ -127,5 +129,12 @@ if ! with_deadline 20 ./OberonLoader do DarwinActivitiesProbe.CheckChildRecovery
    ! grep -aF 'FailingChild' child.log >/dev/null ||
    ! grep -aF 'PASS child trap unwound parent FINALLY' child.log; then
     cat child.log >&2
+    exit 1
+fi
+
+export AOSCONFIG="$base_config ActivityWorkers 1 ActivityCommands DarwinActivitiesProbe.NativeWaitTrap:-,DarwinActivitiesProbe.RecordWorker:-"
+if ! with_deadline 20 ./OberonLoader do DarwinActivitiesProbe.CheckNativeRecovery > nativewait.log 2>&1 ||
+   ! grep -aF 'PASS cancelled native-monitor wait' nativewait.log; then
+    cat nativewait.log >&2
     exit 1
 fi

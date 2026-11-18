@@ -1,7 +1,8 @@
 MODULE DarwinCommandWorkers;
 (** Isolated headless runtime. ActivityCommands lists command:monitor entries
     separated by commas. A dash means the command needs no bound module.
-    A bound monitor must be private to routed workloads for the duration. *)
+    Commands sharing a configured module are serialized by the queue.
+    Its monitor remains available to other native clients. *)
 IMPORT A := DarwinActivities, Commands, Modules, Machine, Objects;
 
 TYPE
@@ -90,9 +91,8 @@ TYPE
 	BEGIN {ACTIVE}
 		LOOP
 			j := queue.Take(id); IF j = NIL THEN EXIT END; NEW(s); j.scheduler := s;
-			IF j.monitor # NIL THEN s.BindModule(j.monitor) END;
 			s.StartTree(j);
-			WHILE s.Dispatch() DO END;
+			s.Drain;
 			ASSERT(s.live = 0); s.Close;
 			IF s.failed THEN j.context.result := Commands.CommandTrapped END;
 			j.scheduler := NIL; j.Complete; j := NIL

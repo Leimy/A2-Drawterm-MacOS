@@ -6,6 +6,9 @@ MODULE Objects;   (** AUTHOR "pjm, G.F."; PURPOSE "Active object runtime support
 IMPORT SYSTEM, Trace, Glue, Unix, Machine, Heaps, Modules;
 
 CONST
+	#IF LIGHTWEIGHT THEN
+	ActivityTreeCancelled* = 1001; (* unwind a parked guard on its owning stack *)
+	#END
 	ConcurrentGC = TRUE; (* if TRUE then release needs to be compiled with --writeBarriers *)
 
 	(*! Process flags, meaningless in Unix ports !!! *)
@@ -70,7 +73,7 @@ TYPE
 	LockT= POINTER TO RECORD
 		mtx, enter: ADDRESS;
 		#IF LIGHTWEIGHT THEN
-		monitor: MonitorCall;
+		monitor: MonitorCall; external: ExternalGuard;
 		#END
 	END;
 
@@ -174,6 +177,9 @@ TYPE
 	Condition = PROCEDURE ( slink: ADDRESS ): BOOLEAN;
 
 	#IF LIGHTWEIGHT THEN
+	ExternalGuard = POINTER TO RECORD
+		next: ExternalGuard; cond: Condition; frame: ADDRESS; signal: EventHandler; notified: BOOLEAN
+	END;
 	ActivitySelf* = ProtectedObject;
 	ActivityBody* = Body;
 	ActivityCondition* = Condition;
@@ -247,6 +253,8 @@ TYPE
 		stackScanner*: StackScanner;
 		stackLimit*: PROCEDURE {DELEGATE}(sp: ADDRESS): ADDRESS;
 		nextActivity*, childActivity*: ActivityStart;
+		prepareWait*: PROCEDURE {DELEGATE}(): EventHandler;
+		waitExternal*: PROCEDURE {DELEGATE}(): BOOLEAN;
 		checkpointDue*: EventHandler; checkpointBudget*: SIZE;
 		activitySelf*: ActivitySelf;
 		#END
@@ -502,7 +510,7 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 		lock := SYSTEM.VAL(LockT, hdr.lock);
 		ASSERT(lock.mtx # 0);
 		Unix.MtxLock(lock.mtx);
-		ASSERT((hdr.lockedBy = NIL) & (hdr.awaitingCond.head = NIL));
+		ASSERT((hdr.lockedBy = NIL) & (hdr.awaitingCond.head = NIL) & (lock.external = NIL));
 		IF install THEN ASSERT(lock.monitor = NIL); lock.monitor := monitor
 		ELSE ASSERT(lock.monitor = monitor); lock.monitor := NIL END;
 		Unix.MtxUnlock(lock.mtx)
@@ -559,6 +567,36 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 		p.mode := Running;  hdr.lockedBy := p;  p.waitingOn := NIL
 	END Lock;
 
+	#IF LIGHTWEIGHT THEN
+	(* All list operations and predicate evaluations hold the native monitor.
+	   A notification is a hint: the fiber reacquires the lock and retests. *)
+	PROCEDURE SignalExternal(lock: LockT);
+	VAR n: ExternalGuard;
+	BEGIN
+		n := lock.external;
+		WHILE n # NIL DO
+			IF ~n.notified & n.cond(n.frame) THEN n.notified := TRUE; n.signal() END;
+			n := n.next
+		END
+	END SignalExternal;
+
+	PROCEDURE AwaitExternal(p: Process; obj: ProtectedObject; lock: LockT; cond: Condition; frame: ADDRESS);
+	VAR n, prev: ExternalGuard; cancelled: BOOLEAN;
+	BEGIN
+		NEW(n); n.cond := cond; n.frame := frame;
+		LOOP
+			n.signal := p.prepareWait(); n.notified := FALSE; n.next := lock.external; lock.external := n;
+			Unlock(obj, TRUE);
+			cancelled := p.waitExternal();
+			Lock(obj, TRUE);
+			IF lock.external = n THEN lock.external := n.next
+			ELSE prev := lock.external; WHILE prev.next # n DO prev := prev.next END; prev.next := n.next END;
+			IF cancelled THEN HALT(ActivityTreeCancelled) END;
+			IF cond(frame) THEN RETURN END
+		END
+	END AwaitExternal;
+	#END
+
 	PROCEDURE Await*( cond: Condition;  slink: ADDRESS;  obj: ProtectedObject;  flags: SET );
 	VAR hdr {UNTRACED}: ObjectHeader;  p, c: Process; lock: LockT;
 	BEGIN
@@ -569,6 +607,9 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 		lock := SYSTEM.VAL(LockT, hdr.lock);
 		#IF LIGHTWEIGHT THEN
 		IF lock.monitor # NIL THEN lock.monitor(1, cond, slink); RETURN END;
+		p := CurrentProcess();
+		IF p.waitExternal # NIL THEN AwaitExternal(p, obj, lock, cond, slink); RETURN END;
+		IF lock.external # NIL THEN SignalExternal(lock) END;
 		#END
 		IF hdr.awaitingCond.head # NIL THEN  c := FindCondition( hdr.awaitingCond )  END;
 
@@ -592,6 +633,7 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 		lock := SYSTEM.VAL(LockT,hdr.lock);
 		#IF LIGHTWEIGHT THEN
 		IF lock.monitor # NIL THEN lock.monitor(2, NIL, 0); RETURN END;
+		IF lock.external # NIL THEN SignalExternal(lock) END;
 		#END
 		IF hdr.awaitingCond.head # NIL THEN  c := FindCondition( hdr.awaitingCond )  END;
 

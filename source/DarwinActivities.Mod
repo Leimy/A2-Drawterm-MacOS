@@ -4,12 +4,11 @@ MODULE DarwinActivities;
 IMPORT SYSTEM, Glue, Unix, Objects, Heaps, Machine, Modules;
 
 CONST CheckpointInterval* = 256; (* work checkpoints per turn *)
-	TreeCancelled = 1001; (* unwind a parked guard on its own stack *)
 
 TYPE
 	Activity* = OBJECT
 	VAR owner: Scheduler; next: Activity; fiber: ADDRESS; queued: BOOLEAN;
-		waitNext: Activity; guard: Objects.ActivityCondition; frame: ADDRESS;
+		externalNext: Activity; posted: BOOLEAN; waitNext: Activity; guard: Objects.ActivityCondition; frame: ADDRESS;
 		children: BOOLEAN; context: ANY; subject: Objects.ActivitySelf;
 
 		PROCEDURE Run*;
@@ -23,6 +22,13 @@ TYPE
 				owner.tail := SELF; queued := TRUE
 			END
 		END Wake;
+
+		(* The producer may run on another pthread. Only the owner touches its
+		   ready queue; the producer latches a notification under a native mutex. *)
+		PROCEDURE Post;
+		BEGIN
+			Unix.MtxLock(owner.inboxLock); posted := TRUE; Unix.CondSignal(owner.changed); Unix.MtxUnlock(owner.inboxLock)
+		END Post;
 
 		PROCEDURE Park*;
 		BEGIN
@@ -97,19 +103,19 @@ TYPE
 			a := scheduler.running; ASSERT(a # NIL);
 			CASE op OF
 			| 0: IF holder = NIL THEN holder := a; RETURN END; Append(entrants, a)
-			| 1: ASSERT(holder = a); IF scheduler.failed THEN HALT(TreeCancelled) END;
+			| 1: ASSERT(holder = a); IF scheduler.failed THEN HALT(Objects.ActivityTreeCancelled) END;
 				HandOff; a.guard := cond; a.frame := frame;
 				IF guards.first = NIL THEN TrackGuards END; Append(guards, a)
 			| 2: ASSERT(holder = a); HandOff; RETURN
 			END;
 			a.Park; ASSERT(holder = a);
 			(* Resume with ownership so the compiler can unwind the EXCLUSIVE block. *)
-			IF (op = 1) & scheduler.failed THEN HALT(TreeCancelled) END
+			IF (op = 1) & scheduler.failed THEN HALT(Objects.ActivityTreeCancelled) END
 		END Call;
 	END Monitor;
 
 	Scheduler* = OBJECT
-	VAR worker: Objects.Process; pool: ADDRESS; head, tail, running: Activity; live-, adopted-: SIZE; bindings, guarded: Monitor; failed-: BOOLEAN;
+	VAR worker: Objects.Process; pool: ADDRESS; inboxLock, changed: ADDRESS; external: Activity; head, tail, running: Activity; live-, adopted-: SIZE; bindings, guarded: Monitor; failed-: BOOLEAN;
 
 		PROCEDURE &Init*;
 		BEGIN
@@ -182,17 +188,65 @@ TYPE
 			IF head # NIL THEN running.Yield END
 		END BudgetExpired;
 
+		PROCEDURE PrepareWait(): Objects.EventHandler;
+		BEGIN
+			IF inboxLock = 0 THEN inboxLock := Unix.NewMtx(); changed := Unix.NewCond() END;
+			running.posted := FALSE; RETURN running.Post
+		END PrepareWait;
+
+		PROCEDURE WaitExternal(): BOOLEAN;
+		BEGIN
+			IF ~failed THEN
+				running.externalNext := external; external := running; running.Park
+			END;
+			RETURN failed
+		END WaitExternal;
+
+		PROCEDURE PollExternal(wait: BOOLEAN);
+		VAR a, next, prev: Activity;
+		BEGIN
+			IF external = NIL THEN RETURN END;
+			Unix.MtxLock(inboxLock);
+			LOOP
+				prev := NIL; a := external;
+				WHILE a # NIL DO
+					next := a.externalNext;
+					IF a.posted OR failed THEN
+						IF prev = NIL THEN external := next ELSE prev.externalNext := next END;
+						a.externalNext := NIL; a.Wake
+					ELSE prev := a END;
+					a := next
+				END;
+				IF ~wait OR (head # NIL) THEN EXIT END;
+				Unix.CondWait(changed, inboxLock)
+			END;
+			Unix.MtxUnlock(inboxLock)
+		END PollExternal;
+
+		(* Command workers may sleep when the only remaining progress must come
+		   from another pthread. Dispatch remains nonblocking for manual drivers. *)
+		PROCEDURE Drain*;
+		BEGIN
+			LOOP
+				IF ~Dispatch() THEN
+					IF external = NIL THEN RETURN END; PollExternal(TRUE)
+				END
+			END
+		END Drain;
+
 		PROCEDURE Dispatch*(): BOOLEAN;
 		VAR a: Activity; hostContext: ANY; done: BOOLEAN;
 		BEGIN
 			ASSERT((worker = Objects.CurrentProcess()) & (running = NIL));
+			IF external # NIL THEN PollExternal(FALSE) END;
 			a := head; IF a = NIL THEN RETURN FALSE END;
 			head := a.next; IF head = NIL THEN tail := NIL END;
 			a.next := NIL; a.queued := FALSE; running := a;
 			hostContext := Objects.CurrentContext(); Objects.SetContext(a.context); worker.activitySelf := a.subject;
 			IF a.children THEN worker.childActivity := Adopt END;
 			worker.checkpointBudget := CheckpointInterval; worker.checkpointDue := BudgetExpired;
-			done := resume(a.fiber) # 0;
+			worker.prepareWait := PrepareWait; worker.waitExternal := WaitExternal;
+			done := resume(a.fiber) # 0; worker.prepareWait := NIL; worker.waitExternal := NIL;
 			worker.checkpointDue := NIL; worker.childActivity := NIL;
 			worker.activitySelf := NIL; a.context := Objects.CurrentContext(); Objects.SetContext(hostContext);
 			IF done THEN
@@ -206,7 +260,10 @@ TYPE
 		PROCEDURE Close*;
 		BEGIN
 			ASSERT((worker = Objects.CurrentProcess()) & (live = 0) & (pool # 0) & (worker.nextActivity = NIL));
-			ASSERT(guarded = NIL);
+			ASSERT((guarded = NIL) & (external = NIL));
+			IF inboxLock # 0 THEN
+				Unix.CondDestroy(changed); Unix.free(changed); Unix.MtxDestroy(inboxLock); Unix.free(inboxLock)
+			END;
 			WHILE bindings # NIL DO
 				Objects.BindActivityMonitor(bindings.bound, bindings.Call, FALSE); bindings := bindings.nextBound
 			END;

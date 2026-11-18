@@ -343,10 +343,114 @@ BEGIN
 	context.out.String("PASS one worker reused across commands with context and result preserved"); context.out.Ln
 END CheckReuse;
 
+TYPE
+	MixedProducer = OBJECT
+	VAR started, finished: BOOLEAN; sent, acknowledged: SIZE; producerThread: Unix.Thread_t;
+		PROCEDURE Start;
+		BEGIN {EXCLUSIVE} started := TRUE END Start;
+		PROCEDURE Receive(sequence: SIZE);
+		BEGIN {EXCLUSIVE}
+			AWAIT(sent = sequence); ASSERT(Unix.ThrThis() # producerThread); acknowledged := sequence
+		END Receive;
+		PROCEDURE Join;
+		BEGIN {EXCLUSIVE} AWAIT(finished) END Join;
+	VAR n: SIZE;
+	BEGIN {ACTIVE}
+		BEGIN {EXCLUSIVE} AWAIT(started) END;
+		Kernel.GC;
+		FOR n := 1 TO 1000 DO
+			BEGIN {EXCLUSIVE}
+				producerThread := Unix.ThrThis(); sent := n; AWAIT(acknowledged = n)
+			END
+		END;
+		BEGIN {EXCLUSIVE} finished := TRUE END
+	END MixedProducer;
+
+	MixedConsumer = OBJECT(A.Activity)
+	VAR producer: MixedProducer; received: SIZE; ownerThread: Unix.Thread_t;
+		PROCEDURE Run*;
+		VAR n: SIZE;
+		BEGIN
+			FOR n := 1 TO 1000 DO
+				producer.Receive(n); ASSERT(Unix.ThrThis() = ownerThread); INC(received)
+			END
+		END Run;
+	END MixedConsumer;
+
+	MixedStarter = OBJECT(A.Activity)
+	VAR producer: MixedProducer; ran: BOOLEAN;
+		PROCEDURE Run*;
+		BEGIN ran := TRUE; producer.Start END Run;
+	END MixedStarter;
+
+PROCEDURE CheckMixed(context: Commands.Context);
+VAR s: A.Scheduler; p: MixedProducer; reader: MixedConsumer; starter: MixedStarter;
+BEGIN
+	NEW(p); NEW(s); NEW(reader); reader.producer := p; reader.ownerThread := Unix.ThrThis();
+	NEW(starter); starter.producer := p; s.Start(reader); s.Start(starter);
+	ASSERT(s.Dispatch()); ASSERT((reader.received = 0) & ~starter.ran);
+	ASSERT(s.Dispatch()); ASSERT(starter.ran);
+	s.Drain; ASSERT((s.live = 0) & (reader.received = 1000)); s.Close; p.Join;
+	context.out.String("PASS 1000 native/fiber AWAIT exchanges on one monitor, peer progress and parked GC"); context.out.Ln
+END CheckMixed;
+
+TYPE
+	Slot = OBJECT
+	VAR item: SIZE;
+		PROCEDURE Take(): SIZE;
+		VAR n: SIZE;
+		BEGIN {EXCLUSIVE} AWAIT(item # 0); n := item; item := 0; RETURN n END Take;
+		PROCEDURE Put(n: SIZE);
+		BEGIN {EXCLUSIVE} ASSERT(item = 0); item := n END Put;
+	END Slot;
+
+	Taker = OBJECT(A.Activity)
+	VAR slot: Slot; got: SIZE;
+		PROCEDURE Run*;
+		BEGIN got := slot.Take() END Run;
+	END Taker;
+
+PROCEDURE CheckStaleWake(context: Commands.Context);
+VAR s: A.Scheduler; slot: Slot; a, b: Taker;
+BEGIN
+	NEW(s); NEW(slot); NEW(a); NEW(b); a.slot := slot; b.slot := slot;
+	s.Start(a); s.Start(b); WHILE s.Dispatch() DO END; ASSERT(s.live = 2);
+	slot.Put(7); WHILE s.Dispatch() DO END;
+	ASSERT((s.live = 1) & (a.got + b.got = 7));
+	slot.Put(9); s.Drain; s.Close; ASSERT(a.got + b.got = 16);
+	context.out.String("PASS competing native-monitor waiters rechecked the consumed item"); context.out.Ln
+END CheckStaleWake;
+
+VAR cancelledSlot: Slot; cleanedNative: SIZE;
+TYPE
+	TrapOnEntry = OBJECT
+	BEGIN {ACTIVE} HALT(73)
+	END TrapOnEntry;
+
+PROCEDURE NativeWaitTrap*(context: Commands.Context);
+VAR child: TrapOnEntry; n: SIZE;
+BEGIN
+	NEW(cancelledSlot); previousWorker := Unix.ThrThis(); NEW(child); n := cancelledSlot.Take(); INC(escaped)
+FINALLY
+	INC(cleanedNative)
+END NativeWaitTrap;
+
+PROCEDURE CheckNativeRecovery*(context: Commands.Context);
+VAR res: INTEGER; msg: Modules.Name;
+BEGIN
+	Commands.Activate("DarwinActivitiesProbe.NativeWaitTrap", NIL, {Commands.Wait}, res, msg);
+	ASSERT((res = Commands.CommandTrapped) & (cleanedNative = 1) & (escaped = 0));
+	Kernel.GC; cancelledSlot.Put(42); ASSERT(cancelledSlot.Take() = 42);
+	visits := 1;
+	Commands.Activate("DarwinActivitiesProbe.RecordWorker", NIL, {Commands.Wait}, res, msg);
+	ASSERT((res = 71) & (visits = 2));
+	context.out.String("PASS cancelled native-monitor wait ran FINALLY and released its registration"); context.out.Ln
+END CheckNativeRecovery;
+
 PROCEDURE Run*(context: Commands.Context);
 VAR trial: Trial; first: Filter; probe: GCProbe; limit: SIGNED32; value, factor, expected: SIZE; composite: POINTER TO ARRAY OF BOOLEAN;
 BEGIN
-	CheckWorkers(context); CheckFairness(context); CheckMonitors(context);
+	CheckStaleWake(context); CheckMixed(context); CheckWorkers(context); CheckFairness(context); CheckMonitors(context);
 	limit := 100000;
 	context.arg.SkipWhitespace; IF context.arg.Peek() > " " THEN context.arg.Int(limit,FALSE) END;
 	ASSERT((limit >= 2) & (limit <= 100000));
