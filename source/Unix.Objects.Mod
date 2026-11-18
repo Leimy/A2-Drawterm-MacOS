@@ -79,6 +79,10 @@ TYPE
 
 	ProcessQueue = Heaps.ProcessQueue;
 
+	#IF LIGHTWEIGHT THEN
+	StackScanner* = PROCEDURE {DELEGATE}(sp, bottom: ADDRESS);
+	#END
+
 	EventHandler* = PROCEDURE  {DELEGATE};
 
 
@@ -228,6 +232,9 @@ TYPE
 		context: ANY; (* commands context *)
 		lastThreadTimes: SIGNED64;
 		gcContext: GCContext;
+		#IF LIGHTWEIGHT THEN
+		stackScanner*: StackScanner;
+		#END
 
 		PROCEDURE SetMode (mode: INTEGER);
 		BEGIN
@@ -258,6 +265,11 @@ TYPE
 				TraceProcessHook(SELF, pc, bp, sp, sb);
 			END;
 
+			#IF LIGHTWEIGHT THEN
+			IF stackScanner # NIL THEN
+				stackScanner(sp, sb)
+			ELSE
+			#END
 			IF contextPos >= 0 THEN (* this thread is currently active in A2 *)
 				IF Heaps.GCType = Heaps.HeuristicStackInspectionGC THEN
 					(* debugging info*)
@@ -304,6 +316,9 @@ TYPE
 					END; (* LOOP *)
 				END; (* gctype *)
 			END; (* contextpos *)
+			#IF LIGHTWEIGHT THEN
+			END;
+			#END
 			IF ConcurrentGC THEN
 				IF suspended THEN
 					Resume(SELF);
