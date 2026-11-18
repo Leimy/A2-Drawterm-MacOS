@@ -6,6 +6,8 @@ IMPORT SYSTEM, Glue, Unix, Objects, Heaps, Machine;
 TYPE
 	Activity* = OBJECT
 	VAR owner: Scheduler; next: Activity; fiber: ADDRESS; queued: BOOLEAN;
+		waitNext: Activity; guard: Objects.ActivityCondition; frame: ADDRESS;
+		context: ANY; subject: Objects.ActivitySelf;
 
 		PROCEDURE Run*;
 		BEGIN HALT(101) END Run;
@@ -29,6 +31,57 @@ TYPE
 		BEGIN Wake; Park END Yield;
 	END Activity;
 
+	BodyActivity = OBJECT(Activity)
+	VAR body: Objects.ActivityBody;
+		PROCEDURE Run*;
+		BEGIN body(subject) END Run;
+	END BodyActivity;
+
+	WaitQueue = RECORD first, last: Activity END;
+
+	Monitor = OBJECT
+	VAR scheduler: Scheduler; holder: Activity; guards, entrants: WaitQueue;
+
+		PROCEDURE Append(VAR q: WaitQueue; a: Activity);
+		BEGIN
+			IF q.last = NIL THEN q.first := a ELSE q.last.waitNext := a END;
+			q.last := a
+		END Append;
+
+		PROCEDURE HandOff;
+		VAR a, prev: Activity;
+		BEGIN
+			holder := NIL; prev := NIL; a := guards.first;
+			WHILE a # NIL DO
+				IF a.guard(a.frame) THEN
+					IF prev = NIL THEN guards.first := a.waitNext ELSE prev.waitNext := a.waitNext END;
+					IF guards.last = a THEN guards.last := prev END;
+					a.waitNext := NIL; a.guard := NIL; a.frame := 0;
+					holder := a; a.Wake; RETURN
+				END;
+				prev := a; a := a.waitNext
+			END;
+			a := entrants.first;
+			IF a # NIL THEN
+				entrants.first := a.waitNext; IF entrants.first = NIL THEN entrants.last := NIL END;
+				a.waitNext := NIL; holder := a; a.Wake
+			END
+		END HandOff;
+
+		PROCEDURE Call(op: INTEGER; cond: Objects.ActivityCondition; frame: ADDRESS);
+		VAR a: Activity;
+		BEGIN
+			ASSERT(Objects.CurrentProcess() = scheduler.worker);
+			a := scheduler.running; ASSERT(a # NIL);
+			CASE op OF
+			| 0: IF holder = NIL THEN holder := a; RETURN END; Append(entrants, a)
+			| 1: ASSERT(holder = a); HandOff; a.guard := cond; a.frame := frame; Append(guards, a)
+			| 2: ASSERT(holder = a); HandOff; RETURN
+			END;
+			a.Park; ASSERT(holder = a)
+		END Call;
+	END Monitor;
+
 	Scheduler* = OBJECT
 	VAR worker: Objects.Process; pool: ADDRESS; head, tail, running: Activity; live-: SIZE;
 
@@ -48,17 +101,38 @@ TYPE
 			Machine.Acquire(Machine.Heaps);
 			a.fiber := newFiber(pool, Enter, SYSTEM.VAL(ADDRESS,a));
 			Machine.Release(Machine.Heaps);
-			ASSERT(a.fiber # 0); a.owner := SELF; INC(live); a.Wake
+			ASSERT(a.fiber # 0); a.owner := SELF; a.context := Objects.CurrentContext(); INC(live); a.Wake
 		END Start;
 
+		(* The next ordinary active object constructed on this worker is enrolled.
+		   Its monitor may only be entered by activities dispatched by this scheduler. *)
+		PROCEDURE NextActive*;
+		BEGIN
+			ASSERT((worker = Objects.CurrentProcess()) & (pool # 0) & (worker.nextActivity = NIL));
+			worker.nextActivity := Adopt
+		END NextActive;
+
+		PROCEDURE Adopt(body: Objects.ActivityBody; obj: Objects.ActivitySelf): Objects.MonitorCall;
+		VAR a: BodyActivity; m: Monitor;
+		BEGIN
+			NEW(m); m.scheduler := SELF; NEW(a); a.subject := obj; a.body := body;
+			Start(a); RETURN m.Call
+		END Adopt;
+
+		PROCEDURE YieldCurrent*;
+		BEGIN ASSERT(worker = Objects.CurrentProcess()); running.Yield END YieldCurrent;
+
 		PROCEDURE Dispatch*(): BOOLEAN;
-		VAR a: Activity;
+		VAR a: Activity; hostContext: ANY; done: BOOLEAN;
 		BEGIN
 			ASSERT((worker = Objects.CurrentProcess()) & (running = NIL));
 			a := head; IF a = NIL THEN RETURN FALSE END;
 			head := a.next; IF head = NIL THEN tail := NIL END;
 			a.next := NIL; a.queued := FALSE; running := a;
-			IF resume(a.fiber) # 0 THEN
+			hostContext := Objects.CurrentContext(); Objects.SetContext(a.context); worker.activitySelf := a.subject;
+			done := resume(a.fiber) # 0;
+			worker.activitySelf := NIL; a.context := Objects.CurrentContext(); Objects.SetContext(hostContext);
+			IF done THEN
 				ASSERT(~a.queued);
 				Machine.Acquire(Machine.Heaps); drop(a.fiber); Machine.Release(Machine.Heaps);
 				a.fiber := 0; a.owner := NIL; DEC(live)
@@ -68,7 +142,7 @@ TYPE
 
 		PROCEDURE Close*;
 		BEGIN
-			ASSERT((worker = Objects.CurrentProcess()) & (live = 0) & (pool # 0));
+			ASSERT((worker = Objects.CurrentProcess()) & (live = 0) & (pool # 0) & (worker.nextActivity = NIL));
 			Machine.Acquire(Machine.Heaps); worker.stackScanner := NIL; close(pool); pool := 0; Machine.Release(Machine.Heaps)
 		END Close;
 	END Scheduler;

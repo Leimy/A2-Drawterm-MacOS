@@ -1,5 +1,5 @@
 MODULE DarwinActivitiesProbe;
-IMPORT A := DarwinActivities, Commands, Kernel, Unix;
+IMPORT A := DarwinActivities, Commands, Kernel, Unix, Objects;
 
 CONST BatchSize = 256;
 TYPE
@@ -76,9 +76,57 @@ TYPE
 		END Run;
 	END GCProbe;
 
+TYPE
+	Exchange = OBJECT
+	VAR scheduler: A.Scheduler; worker: Unix.Thread_t; value, consumed: SIZE;
+
+		PROCEDURE Put(n: SIZE);
+		BEGIN {EXCLUSIVE}
+			AWAIT(value = 0); value := n
+		END Put;
+
+		PROCEDURE Take(expected: SIZE);
+		BEGIN {EXCLUSIVE}
+			IF expected = 1 THEN scheduler.YieldCurrent END; (* producer contends for this lock *)
+			AWAIT(value = expected); (* predicate uses this call's stack frame *)
+			ASSERT(Unix.ThrThis() = worker); ASSERT(Objects.ActiveObject() = SELF);
+			value := 0; INC(consumed)
+		END Take;
+
+	VAR i: SIZE;
+	BEGIN {ACTIVE}
+		FOR i := 1 TO 1000 DO Take(i) END
+	END Exchange;
+
+	Producer = OBJECT
+	VAR exchange: Exchange; i: SIZE;
+	BEGIN {ACTIVE}
+		FOR i := 1 TO 1000 DO
+			ASSERT(Objects.ActiveObject() = SELF); ASSERT(Unix.ThrThis() = exchange.worker);
+			exchange.Put(i)
+		END
+	END Producer;
+
+PROCEDURE CheckMonitors(context: Commands.Context);
+VAR scheduler: A.Scheduler; exchange: Exchange; producer: Producer;
+BEGIN
+	NEW(scheduler);
+	scheduler.NextActive; NEW(exchange); exchange.scheduler := scheduler; exchange.worker := Unix.ThrThis();
+	scheduler.NextActive; NEW(producer); producer.exchange := exchange;
+	ASSERT(scheduler.Dispatch()); (* consumer yields holding the monitor *)
+	ASSERT(scheduler.Dispatch()); (* producer parks entering Put *)
+	ASSERT(scheduler.Dispatch()); (* consumer awaits, admitting producer *)
+	ASSERT((exchange.consumed = 0) & (scheduler.live = 2));
+	Kernel.GC;
+	WHILE scheduler.Dispatch() DO END;
+	ASSERT((scheduler.live = 0) & (exchange.consumed = 1000) & (exchange.value = 0)); scheduler.Close;
+	context.out.String("PASS two ACTIVE bodies, contended EXCLUSIVE and 1000 AWAIT exchanges on one pthread"); context.out.Ln
+END CheckMonitors;
+
 PROCEDURE Run*(context: Commands.Context);
 VAR trial: Trial; first: Filter; probe: GCProbe; limit: SIGNED32; value, factor, expected: SIZE; composite: POINTER TO ARRAY OF BOOLEAN;
 BEGIN
+	CheckMonitors(context);
 	limit := 100000;
 	context.arg.SkipWhitespace; IF context.arg.Peek() > " " THEN context.arg.Int(limit,FALSE) END;
 	ASSERT((limit >= 2) & (limit <= 100000));

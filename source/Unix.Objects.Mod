@@ -69,6 +69,9 @@ TYPE
 
 	LockT= POINTER TO RECORD
 		mtx, enter: ADDRESS;
+		#IF LIGHTWEIGHT THEN
+		monitor: MonitorCall;
+		#END
 	END;
 
 	CpuCyclesArray* = ARRAY Machine.MaxCPU OF SIGNED64;
@@ -170,6 +173,14 @@ TYPE
 	Body = PROCEDURE ( self: ProtectedObject );
 	Condition = PROCEDURE ( slink: ADDRESS ): BOOLEAN;
 
+	#IF LIGHTWEIGHT THEN
+	ActivitySelf* = ProtectedObject;
+	ActivityBody* = Body;
+	ActivityCondition* = Condition;
+	MonitorCall* = PROCEDURE {DELEGATE}(op: INTEGER; cond: Condition; frame: ADDRESS);
+	ActivityStart* = PROCEDURE {DELEGATE}(body: Body; obj: ProtectedObject): MonitorCall;
+	#END
+
 	GCContext = RECORD
 		p: Process; (* correspondig process *)
 		nextPos: SIZE; (* 0 to start with *)
@@ -234,6 +245,8 @@ TYPE
 		gcContext: GCContext;
 		#IF LIGHTWEIGHT THEN
 		stackScanner*: StackScanner;
+		nextActivity*: ActivityStart;
+		activitySelf*: ActivitySelf;
 		#END
 
 		PROCEDURE SetMode (mode: INTEGER);
@@ -478,7 +491,21 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 
 	PROCEDURE CreateProcess*( body: Body;  priority: INTEGER;  flags: SET;  obj: ProtectedObject );
 	VAR p: Process;  hdr{UNTRACED}: ObjectHeader;
+	#IF LIGHTWEIGHT THEN
+	VAR start: ActivityStart; lock: LockT;
+	#END
 	BEGIN
+		#IF LIGHTWEIGHT THEN
+		p := CurrentProcess();
+		IF (p # NIL) & (p.nextActivity # NIL) THEN
+			start := p.nextActivity; p.nextActivity := NIL;
+			ASSERT((priority = 0) & (flags = {}));
+			SYSTEM.GET(SYSTEM.VAL(ADDRESS,obj) + Heaps.HeapBlockOffset, hdr);
+			ASSERT(hdr.lock = NIL); (* enroll a fresh, unpublished monitor *)
+			NEW(lock); lock.monitor := start(body, obj); hdr.lock := lock;
+			RETURN
+		END;
+		#END
 		Unix.MtxLock( createProcess );
 		SYSTEM.GET( SYSTEM.VAL( ADDRESS, obj ) + Heaps.HeapBlockOffset, hdr );
 		InitProtHeader( hdr );
@@ -499,6 +526,9 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 		IF hdr.lock = NIL THEN  InitProtHeader( hdr )  END;
 		lock := SYSTEM.VAL(LockT, hdr.lock);
 
+		#IF LIGHTWEIGHT THEN
+		IF lock.monitor # NIL THEN lock.monitor(0, NIL, 0); RETURN END;
+		#END
 		p.mode := AwaitingLock;
 		Unix.MtxLock( lock.mtx );
 		WHILE hdr.lockedBy # NIL DO
@@ -516,6 +546,9 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 		END;
 		SYSTEM.GET( SYSTEM.VAL( ADDRESS, obj ) + Heaps.HeapBlockOffset, hdr );  c := NIL;
 		lock := SYSTEM.VAL(LockT, hdr.lock);
+		#IF LIGHTWEIGHT THEN
+		IF lock.monitor # NIL THEN lock.monitor(1, cond, slink); RETURN END;
+		#END
 		IF hdr.awaitingCond.head # NIL THEN  c := FindCondition( hdr.awaitingCond )  END;
 
 		p := CurrentProcess();
@@ -536,6 +569,9 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 	BEGIN
 		SYSTEM.GET( SYSTEM.VAL( ADDRESS, obj ) + Heaps.HeapBlockOffset, hdr );  c := NIL;
 		lock := SYSTEM.VAL(LockT,hdr.lock);
+		#IF LIGHTWEIGHT THEN
+		IF lock.monitor # NIL THEN lock.monitor(2, NIL, 0); RETURN END;
+		#END
 		IF hdr.awaitingCond.head # NIL THEN  c := FindCondition( hdr.awaitingCond )  END;
 
 		hdr.lockedBy := c;
@@ -631,6 +667,9 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 	VAR p: Process;
 	BEGIN
 		p := CurrentProcess();
+		#IF LIGHTWEIGHT THEN
+		IF p.activitySelf # NIL THEN RETURN p.activitySelf END;
+		#END
 		RETURN p.obj
 	END ActiveObject;
 

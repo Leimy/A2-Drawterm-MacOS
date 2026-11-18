@@ -31,4 +31,5 @@ run compile -p=DarwinA2 DarwinActivities.Mod DarwinActivitiesProbe.Mod
 test -s DarwinActivitiesProbe.GofAa
 export OBERON_CORE="$work/DarwinAosCompilerAa"
 run do 'DarwinActivitiesProbe.Run 100000'
+grep -F 'PASS two ACTIVE bodies, contended EXCLUSIVE and 1000 AWAIT exchanges on one pthread' run.log
 grep 'PASS single worker, parked GC and exact sieve through 100000: 9592 activities' run.log
