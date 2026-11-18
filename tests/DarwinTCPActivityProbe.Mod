@@ -70,8 +70,14 @@ BEGIN
 	FOR mode := 0 TO 2 DO
 		Loopback(c, peer); SendByte(peer, "A");
 		NEW(s); NEW(r); r.c := c; NEW(w); w.peer := peer; w.mode := mode; w.c := c;
-		s.Start(r); s.Start(w);
-		ASSERT(s.Dispatch()); ASSERT(~r.finished & ~w.ran);
+		s.Start(r);
+		(* The first byte may still be in transit. Discard only after the reader
+		   has consumed it and parked waiting for the second byte. *)
+		REPEAT
+			IF ~s.Dispatch() THEN Unix.ThrSleep(1) END;
+			ASSERT(~r.finished)
+		UNTIL r.data[1] = "A";
+		s.Start(w);
 		ASSERT(s.Dispatch()); ASSERT(w.ran);
 		s.Drain; s.Close; ASSERT(r.finished & (r.data[0] = "-") & (r.data[1] = "A"));
 		IF mode = 0 THEN

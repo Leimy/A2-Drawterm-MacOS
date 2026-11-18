@@ -45,12 +45,11 @@ run() {
         exit 1
     fi
 }
+# Link the source-built Unix module so recovery tests exercise its GC path.
+run compile -p=DarwinA2 --traceModule=Trace --define=UNIX,AARCH64,DESKTOP,LIGHTWEIGHT Darwin.Unix.Mod
 run execute core.txt
 grep -q 'Link successful' run.log
 run compile -p=DarwinA2 CSP.Mod CSPChannels.Mod CSPDemo.Mod ConcurrentSieve.Mod DarwinActivities.Mod DarwinCommandWorkers.Mod DarwinActivitiesProbe.Mod
-# Networking needs the corrected Darwin errno constant in the symbol file.
-# Keep the bootstrap Unix implementation linked into the experimental core.
-run compile -p=DarwinA2 --traceModule=Trace --define=UNIX,AARCH64,DESKTOP Darwin.Unix.Mod
 run compile -p=DarwinA2 --define=UNIX,AARCH64,DESKTOP Network.Mod Unix.IP.Mod Unix.Sockets.Mod Unix.TCP.Mod
 run compile -p=DarwinA2 --define=UNIX,AARCH64,DESKTOP,LIGHTWEIGHT Network.Mod Unix.IP.Mod Unix.Sockets.Mod Unix.TCP.Mod DarwinTCPActivityProbe.Mod
 test -s TCP.GofAa

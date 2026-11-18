@@ -558,6 +558,11 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 
 		#IF LIGHTWEIGHT THEN
 		IF lock.monitor # NIL THEN lock.monitor(0, NIL, 0); RETURN END;
+		(* Suspend does not signal threads in a native monitor wait. Publish
+		   this live frame before the collector can observe the waiting mode. *)
+		p.state.SP := SYSTEM.GetStackPointer();
+		p.state.BP := SYSTEM.GetFramePointer();
+		p.state.PC := Machine.CurrentPC();
 		#END
 		p.mode := AwaitingLock;
 		Unix.MtxLock( lock.mtx );
@@ -622,6 +627,12 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 		hdr.lockedBy := c;
 		IF c # NIL THEN  Unix.CondSignal( c.continue )  ELSE  Unix.CondSignal( lock.enter )  END;
 
+		#IF LIGHTWEIGHT THEN
+		(* Publish the waiting frame as in Lock. *)
+		p.state.SP := SYSTEM.GetStackPointer();
+		p.state.BP := SYSTEM.GetFramePointer();
+		p.state.PC := Machine.CurrentPC();
+		#END
 		p.mode := AwaitingCond;
 		Unix.CondWait( p.continue, lock.mtx );
 		p.mode := Running;  hdr.lockedBy := p;  p.waitingOn := NIL
