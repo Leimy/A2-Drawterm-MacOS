@@ -255,6 +255,7 @@ TYPE
 		nextActivity*, childActivity*: ActivityStart;
 		prepareWait*: PROCEDURE {DELEGATE}(): EventHandler;
 		waitExternal*: PROCEDURE {DELEGATE}(): BOOLEAN;
+		awaitReadable*: PROCEDURE {DELEGATE}(fd: SIGNED32): BOOLEAN;
 		checkpointDue*: EventHandler; checkpointBudget*: SIZE;
 		activitySelf*: ActivitySelf;
 		#END

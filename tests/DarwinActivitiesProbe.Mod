@@ -447,10 +447,89 @@ BEGIN
 	context.out.String("PASS cancelled native-monitor wait ran FINALLY and released its registration"); context.out.Ln
 END CheckNativeRecovery;
 
+PROCEDURE SocketPair(VAR fds: ARRAY OF SIGNED32);
+VAR pair: PROCEDURE {C}(domain, kind, protocol: SIGNED32; out: ADDRESS): SIGNED32;
+BEGIN
+	Unix.Dlsym(Unix.libc, "socketpair", ADDRESSOF(pair));
+	ASSERT(pair(1, 1, 0, ADDRESSOF(fds[0])) = 0) (* Darwin AF_UNIX, SOCK_STREAM *)
+END SocketPair;
+
+TYPE
+	SocketWriter = OBJECT
+	VAR fd: SIGNED32; started: BOOLEAN;
+		PROCEDURE Start;
+		BEGIN {EXCLUSIVE} started := TRUE END Start;
+		PROCEDURE &Init(fd: SIGNED32);
+		BEGIN SELF.fd := fd END Init;
+	VAR ch: CHAR;
+	BEGIN {ACTIVE}
+		BEGIN {EXCLUSIVE} AWAIT(started) END;
+		Objects.Sleep(10);
+		ch := "A"; ASSERT(Unix.write(fd, ADDRESSOF(ch), 1) = 1);
+		ch := "2"; ASSERT(Unix.write(fd, ADDRESSOF(ch), 1) = 1); ASSERT(Unix.close(fd) = 0)
+	END SocketWriter;
+
+	SocketReader = OBJECT
+	VAR fd: SIGNED32; owner: Unix.Thread_t; finished: BOOLEAN;
+		PROCEDURE &Init(fd: SIGNED32);
+		BEGIN SELF.fd := fd; owner := Unix.ThrThis() END Init;
+	VAR ch: CHAR;
+	BEGIN {ACTIVE}
+		ASSERT(~A.AwaitReadable(-1));
+		ASSERT(A.AwaitReadable(fd)); ASSERT(Unix.read(fd, ADDRESSOF(ch), 1) = 1); ASSERT(ch = "A");
+		ASSERT(A.AwaitReadable(fd)); ASSERT(Unix.read(fd, ADDRESSOF(ch), 1) = 1); ASSERT(ch = "2");
+		ASSERT(A.AwaitReadable(fd)); ASSERT(Unix.read(fd, ADDRESSOF(ch), 1) = 0);
+		ASSERT(Unix.ThrThis() = owner); finished := TRUE
+	END SocketReader;
+
+	SocketStarter = OBJECT(A.Activity)
+	VAR writer: SocketWriter; ran: BOOLEAN;
+		PROCEDURE Run*;
+		BEGIN ran := TRUE; writer.Start END Run;
+	END SocketStarter;
+
+PROCEDURE CheckSockets(context: Commands.Context);
+VAR fds: ARRAY 2 OF SIGNED32; s: A.Scheduler; writer: SocketWriter; reader: SocketReader; starter: SocketStarter;
+BEGIN
+	SocketPair(fds); NEW(writer, fds[1]); NEW(s); s.NextActive; NEW(reader, fds[0]);
+	NEW(starter); starter.writer := writer; s.Start(starter);
+	ASSERT(s.Dispatch()); ASSERT(~reader.finished & ~starter.ran);
+	Kernel.GC; ASSERT(s.Dispatch()); ASSERT(starter.ran); s.Drain;
+	ASSERT(reader.finished); s.Close; ASSERT(Unix.close(fds[0]) = 0);
+	context.out.String("PASS GCD socket readiness, peer progress, two reads and EOF on the owning pthread"); context.out.Ln
+END CheckSockets;
+
+VAR quietPair: ARRAY 2 OF SIGNED32; socketCleanups: SIZE;
+
+PROCEDURE SocketWaitTrap*(context: Commands.Context);
+VAR child: TrapOnEntry;
+BEGIN
+	SocketPair(quietPair); previousWorker := Unix.ThrThis(); NEW(child);
+	IF A.AwaitReadable(quietPair[0]) THEN INC(escaped) END
+FINALLY
+	INC(socketCleanups)
+END SocketWaitTrap;
+
+PROCEDURE CheckSocketRecovery*(context: Commands.Context);
+VAR res: INTEGER; msg: Modules.Name; ch: CHAR;
+BEGIN
+	Commands.Activate("DarwinActivitiesProbe.SocketWaitTrap", NIL, {Commands.Wait}, res, msg);
+	ASSERT((res = Commands.CommandTrapped) & (socketCleanups = 1) & (escaped = 0));
+	Kernel.GC;
+	ch := "R"; ASSERT(Unix.write(quietPair[1], ADDRESSOF(ch), 1) = 1);
+	ASSERT(Unix.read(quietPair[0], ADDRESSOF(ch), 1) = 1); ASSERT(ch = "R");
+	ASSERT(Unix.close(quietPair[0]) = 0);
+	(* EOF here also proves the dispatch source released its duplicate. *)
+	ASSERT(Unix.read(quietPair[1], ADDRESSOF(ch), 1) = 0); ASSERT(Unix.close(quietPair[1]) = 0);
+	visits := 1; Commands.Activate("DarwinActivitiesProbe.RecordWorker", NIL, {Commands.Wait}, res, msg);
+	ASSERT((res = 71) & (visits = 2));
+	context.out.String("PASS quiet socket cancellation, descriptor ownership and worker reuse"); context.out.Ln
+END CheckSocketRecovery;
+
 PROCEDURE Run*(context: Commands.Context);
 VAR trial: Trial; first: Filter; probe: GCProbe; limit: SIGNED32; value, factor, expected: SIZE; composite: POINTER TO ARRAY OF BOOLEAN;
 BEGIN
-	CheckStaleWake(context); CheckMixed(context); CheckWorkers(context); CheckFairness(context); CheckMonitors(context);
+	CheckSockets(context); CheckStaleWake(context); CheckMixed(context); CheckWorkers(context); CheckFairness(context); CheckMonitors(context);
 	limit := 100000;
 	context.arg.SkipWhitespace; IF context.arg.Peek() > " " THEN context.arg.Int(limit,FALSE) END;
 	ASSERT((limit >= 2) & (limit <= 100000));

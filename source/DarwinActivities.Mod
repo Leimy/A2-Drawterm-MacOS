@@ -8,7 +8,7 @@ CONST CheckpointInterval* = 256; (* work checkpoints per turn *)
 TYPE
 	Activity* = OBJECT
 	VAR owner: Scheduler; next: Activity; fiber: ADDRESS; queued: BOOLEAN;
-		externalNext: Activity; posted: BOOLEAN; waitNext: Activity; guard: Objects.ActivityCondition; frame: ADDRESS;
+		externalNext: Activity; readWatch: ADDRESS; posted: BOOLEAN; waitNext: Activity; guard: Objects.ActivityCondition; frame: ADDRESS;
 		children: BOOLEAN; context: ANY; subject: Objects.ActivitySelf;
 
 		PROCEDURE Run*;
@@ -188,10 +188,14 @@ TYPE
 			IF head # NIL THEN running.Yield END
 		END BudgetExpired;
 
+		PROCEDURE InitInbox;
+		BEGIN
+			IF inboxLock = 0 THEN inboxLock := Unix.NewMtx(); changed := Unix.NewCond() END
+		END InitInbox;
+
 		PROCEDURE PrepareWait(): Objects.EventHandler;
 		BEGIN
-			IF inboxLock = 0 THEN inboxLock := Unix.NewMtx(); changed := Unix.NewCond() END;
-			running.posted := FALSE; RETURN running.Post
+			InitInbox; running.posted := FALSE; RETURN running.Post
 		END PrepareWait;
 
 		PROCEDURE WaitExternal(): BOOLEAN;
@@ -202,6 +206,16 @@ TYPE
 			RETURN failed
 		END WaitExternal;
 
+		PROCEDURE WaitReadable(fd: SIGNED32): BOOLEAN;
+		VAR a: Activity; cancelled: BOOLEAN;
+		BEGIN
+			a := running; InitInbox; a.posted := FALSE;
+			a.readWatch := watchRead(fd, inboxLock, changed); IF a.readWatch = 0 THEN RETURN FALSE END;
+			cancelled := WaitExternal(); unwatchRead(a.readWatch); a.readWatch := 0;
+			IF cancelled THEN HALT(Objects.ActivityTreeCancelled) END;
+			RETURN TRUE
+		END WaitReadable;
+
 		PROCEDURE PollExternal(wait: BOOLEAN);
 		VAR a, next, prev: Activity;
 		BEGIN
@@ -211,7 +225,7 @@ TYPE
 				prev := NIL; a := external;
 				WHILE a # NIL DO
 					next := a.externalNext;
-					IF a.posted OR failed THEN
+					IF a.posted OR failed OR ((a.readWatch # 0) & (readReady(a.readWatch) # 0)) THEN
 						IF prev = NIL THEN external := next ELSE prev.externalNext := next END;
 						a.externalNext := NIL; a.Wake
 					ELSE prev := a END;
@@ -245,8 +259,8 @@ TYPE
 			hostContext := Objects.CurrentContext(); Objects.SetContext(a.context); worker.activitySelf := a.subject;
 			IF a.children THEN worker.childActivity := Adopt END;
 			worker.checkpointBudget := CheckpointInterval; worker.checkpointDue := BudgetExpired;
-			worker.prepareWait := PrepareWait; worker.waitExternal := WaitExternal;
-			done := resume(a.fiber) # 0; worker.prepareWait := NIL; worker.waitExternal := NIL;
+			worker.prepareWait := PrepareWait; worker.waitExternal := WaitExternal; worker.awaitReadable := WaitReadable;
+			done := resume(a.fiber) # 0; worker.prepareWait := NIL; worker.waitExternal := NIL; worker.awaitReadable := NIL;
 			worker.checkpointDue := NIL; worker.childActivity := NIL;
 			worker.activitySelf := NIL; a.context := Objects.CurrentContext(); Objects.SetContext(hostContext);
 			IF done THEN
@@ -272,12 +286,26 @@ TYPE
 	END Scheduler;
 
 VAR library: ADDRESS;
+	watchRead: PROCEDURE {C}(fd: SIGNED32; lock, changed: ADDRESS): ADDRESS;
+	readReady: PROCEDURE {C}(watch: ADDRESS): SIGNED32;
+	unwatchRead: PROCEDURE {C}(watch: ADDRESS);
 	stackLimit: PROCEDURE {C}(pool, sp: ADDRESS): ADDRESS;
 	newPool: PROCEDURE {C}(): ADDRESS;
 	newFiber: PROCEDURE {C}(pool: ADDRESS; entry: PROCEDURE {C}(arg: ADDRESS); arg: ADDRESS): ADDRESS;
 	resume: PROCEDURE {C}(fiber: ADDRESS): SIGNED32;
 	park, drop, close: PROCEDURE {C}(handle: ADDRESS);
 	roots: PROCEDURE {C}(pool, sp, bottom: ADDRESS; visit: PROCEDURE {C}(adr: ADDRESS; size: SIZE));
+
+(* Wait for data or EOF. Keep fd open until return. Readiness is a hint:
+   use nonblocking reads and re-arm on EAGAIN when sharing a socket.
+   FALSE means there is no current lightweight activity or registration failed. *)
+PROCEDURE AwaitReadable*(fd: SIGNED32): BOOLEAN;
+VAR worker: Objects.Process;
+BEGIN
+	worker := Objects.CurrentProcess();
+	IF (worker = NIL) OR (worker.awaitReadable = NIL) THEN RETURN FALSE END;
+	RETURN worker.awaitReadable(fd)
+END AwaitReadable;
 
 (* Call between bounded chunks of CPU work, outside locks and AWAIT predicates.
    A native caller or a host between dispatches has no cooperative budget. *)
@@ -293,6 +321,9 @@ BEGIN Heaps.RegisterCandidates(adr, size) END Candidates;
 
 BEGIN
 	library := Glue.dlopen(ADDRESSOF("@executable_path/libA2Activities.dylib"), 2); ASSERT(library # 0);
+	Unix.Dlsym(library, "activity_watch_read", ADDRESSOF(watchRead));
+	Unix.Dlsym(library, "activity_read_ready", ADDRESSOF(readReady));
+	Unix.Dlsym(library, "activity_unwatch_read", ADDRESSOF(unwatchRead));
 	Unix.Dlsym(library, "activity_stack_limit", ADDRESSOF(stackLimit));
 	Unix.Dlsym(library, "activity_pool", ADDRESSOF(newPool));
 	Unix.Dlsym(library, "activity_new", ADDRESSOF(newFiber));

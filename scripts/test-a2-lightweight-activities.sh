@@ -66,6 +66,7 @@ chmod u+rw DarwinLoopCheckpointProbe.GofAa DarwinLoopCheckpointProbe.SymAa
 run do DarwinLoopCheckpointProbe.Run
 grep -F 'PASS compiler checkpoints' run.log
 run do 'DarwinActivitiesProbe.Run 100000'
+grep -F 'PASS GCD socket readiness' run.log
 grep -F 'PASS competing native-monitor' run.log
 grep -F 'PASS 1000 native/fiber' run.log
 grep -F 'PASS 128 lightweight activities on two distinct pthreads' run.log
@@ -136,5 +137,12 @@ export AOSCONFIG="$base_config ActivityWorkers 1 ActivityCommands DarwinActiviti
 if ! with_deadline 20 ./OberonLoader do DarwinActivitiesProbe.CheckNativeRecovery > nativewait.log 2>&1 ||
    ! grep -aF 'PASS cancelled native-monitor wait' nativewait.log; then
     cat nativewait.log >&2
+    exit 1
+fi
+
+export AOSCONFIG="$base_config ActivityWorkers 1 ActivityCommands DarwinActivitiesProbe.SocketWaitTrap:-,DarwinActivitiesProbe.RecordWorker:-"
+if ! with_deadline 20 ./OberonLoader do DarwinActivitiesProbe.CheckSocketRecovery > socketwait.log 2>&1 ||
+   ! grep -aF 'PASS quiet socket cancellation' socketwait.log; then
+    cat socketwait.log >&2
     exit 1
 fi
