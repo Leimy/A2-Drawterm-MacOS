@@ -237,6 +237,46 @@ BEGIN
 	context.out.String("PASS 128 lightweight activities on two distinct pthreads, parked GC and independent progress"); context.out.Ln
 END CheckWorkers;
 
+VAR entered, released: BOOLEAN; blockedThread, previousWorker: Unix.Thread_t; visits: SIZE;
+
+PROCEDURE BlockWorker*(context: Commands.Context);
+BEGIN {EXCLUSIVE}
+	ASSERT(Objects.CurrentProcess().checkpointDue # NIL);
+	blockedThread := Unix.ThrThis(); entered := TRUE; AWAIT(released)
+END BlockWorker;
+
+PROCEDURE ReleaseWorker*(context: Commands.Context);
+BEGIN {EXCLUSIVE}
+	AWAIT(entered); ASSERT(Objects.CurrentProcess().checkpointDue # NIL);
+	ASSERT(Unix.ThrThis() # blockedThread); released := TRUE
+END ReleaseWorker;
+
+PROCEDURE CheckRouting*(context: Commands.Context);
+VAR res: INTEGER; msg: Modules.Name;
+BEGIN
+	Commands.Activate("DarwinActivitiesProbe.BlockWorker", NIL, {}, res, msg); ASSERT(res = Commands.Ok);
+	Commands.Activate("DarwinActivitiesProbe.ReleaseWorker", NIL, {Commands.Wait}, res, msg); ASSERT(res = Commands.Ok);
+	context.out.String("PASS ordinary commands on two automatically assigned worker pthreads"); context.out.Ln
+END CheckRouting;
+
+PROCEDURE RecordWorker*(context: Commands.Context);
+BEGIN
+	ASSERT((Objects.CurrentProcess().checkpointDue # NIL) & (Commands.GetContext() = context));
+	IF visits = 0 THEN previousWorker := Unix.ThrThis() ELSE ASSERT(previousWorker = Unix.ThrThis()) END;
+	INC(visits); context.result := 71
+END RecordWorker;
+
+PROCEDURE CheckReuse*(context: Commands.Context);
+VAR i: SIZE; res: INTEGER; msg: Modules.Name;
+BEGIN
+	FOR i := 1 TO 2 DO
+		Commands.Activate("DarwinActivitiesProbe.RecordWorker", NIL, {Commands.Wait}, res, msg);
+		ASSERT(res = 71)
+	END;
+	ASSERT(visits = 2);
+	context.out.String("PASS one worker reused across commands with context and result preserved"); context.out.Ln
+END CheckReuse;
+
 PROCEDURE Run*(context: Commands.Context);
 VAR trial: Trial; first: Filter; probe: GCProbe; limit: SIGNED32; value, factor, expected: SIZE; composite: POINTER TO ARRAY OF BOOLEAN;
 BEGIN

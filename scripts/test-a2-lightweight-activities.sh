@@ -2,10 +2,10 @@
 # Builds a separate compiler core with experimental stack scanning. The
 # existing native toolchain supplies the unchanged bootstrap modules.
 set -eu
-limit=${1:-10000}
-case "$limit" in
-    10000|100000) ;;
-    *) echo "Usage: $0 [10000|100000]" >&2; exit 2 ;;
+case "${1:-10000}" in
+    10000|100000) limit=${1:-10000}; command_mode=false ;;
+    --do) [ "$#" -eq 2 ] || { echo 'Expected one quoted A2 command' >&2; exit 2; }; command_mode=true ;;
+    *) echo "Usage: $0 [10000|100000|--do 'Module.Command args']" >&2; exit 2 ;;
 esac
 run_timeout=90
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -33,9 +33,15 @@ run() {
 }
 run execute core.txt
 grep -q 'Link successful' run.log
-run compile -p=DarwinA2 CSP.Mod CSPChannels.Mod CSPDemo.Mod ConcurrentSieve.Mod DarwinActivities.Mod DarwinActivitiesProbe.Mod
+run compile -p=DarwinA2 CSP.Mod CSPChannels.Mod CSPDemo.Mod ConcurrentSieve.Mod DarwinActivities.Mod DarwinCommandWorkers.Mod DarwinActivitiesProbe.Mod
 test -s DarwinActivitiesProbe.GofAa
 export OBERON_CORE="$work/DarwinAosCompilerAa"
+routes='ConcurrentSieve.Run:ConcurrentSieve,CSPDemo.Run:CSP'
+if "$command_mode"; then
+    export AOSCONFIG="$AOSCONFIG ActivityWorkers ${A2_ACTIVITY_WORKERS:-2} ActivityCommands $routes"
+    ./OberonLoader do "$2"
+    exit $?
+fi
 run compile -p=DarwinA2 DarwinLoopCheckpointProbe.Mod
 # The rebuilt compiler can create objects without owner read permission.
 chmod u+rw DarwinLoopCheckpointProbe.GofAa DarwinLoopCheckpointProbe.SymAa
@@ -78,3 +84,16 @@ if [ "$limit" = 100000 ]; then run_timeout=600; fi
 check_tree Mailboxes "$limit"
 run_timeout=90
 check_tree Channels 1000
+
+base_config=$AOSCONFIG
+export AOSCONFIG="$base_config ActivityWorkers 1 ActivityCommands DarwinActivitiesProbe.RecordWorker:-"
+run do DarwinActivitiesProbe.CheckReuse
+grep -F 'PASS one worker reused' run.log
+export AOSCONFIG="$base_config ActivityWorkers 2 ActivityCommands $routes,DarwinActivitiesProbe.BlockWorker:-,DarwinActivitiesProbe.ReleaseWorker:-"
+run do DarwinActivitiesProbe.CheckRouting
+grep -F 'PASS ordinary commands on two automatically assigned worker pthreads' run.log
+if [ "$limit" = 100000 ]; then run_timeout=600; fi
+run do "ConcurrentSieve.Run $limit"
+grep -F "Active-object sieve through $limit:" run.log
+run do 'CSPDemo.Run 1000'
+grep -F 'CSP sieve finished; all filter activities joined' run.log

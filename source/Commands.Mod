@@ -131,6 +131,10 @@ TYPE
 	END Runner;
 
 VAR
+	#IF LIGHTWEIGHT THEN
+	workerRoute*: PROCEDURE(CONST cmd: ARRAY OF CHAR; context: Context; flags: SET; VAR res: INTEGER; VAR msg: ARRAY OF CHAR): BOOLEAN;
+	workerCount: ARRAY 16 OF CHAR;
+	#END
 	emptyString : ARRAY 1 OF CHAR;
 	silentWriter: Streams.Writer;
 	trace: BOOLEAN;
@@ -198,11 +202,27 @@ END GetContext;
 
 PROCEDURE Activate*(CONST cmd : ARRAY OF CHAR; context : Context; flags : SET; VAR res : INTEGER; VAR msg : ARRAY OF CHAR);
 VAR moduleName, commandName : Modules.Name; run : Runner;
+#IF LIGHTWEIGHT THEN
+VAR routerModule: Modules.Module;
+	p: Objects.Process; children: Objects.ActivityStart;
+#END
 BEGIN
 
 	Split(cmd, moduleName, commandName, res, msg);
 	IF (res = Ok) THEN
+		#IF LIGHTWEIGHT THEN
+		IF workerCount # "" THEN
+			routerModule := Modules.ThisModule("DarwinCommandWorkers", res, msg);
+			IF (routerModule = NIL) OR (workerRoute = NIL) THEN res := CommandError; COPY("Darwin command workers unavailable", msg); RETURN END;
+			IF workerRoute(cmd, context, flags, res, msg) THEN RETURN END
+		END;
+		(* A command runner has its own native join monitor and trap handler. *)
+		p := Objects.CurrentProcess(); children := p.childActivity; p.childActivity := NIL;
+		#END
 		NEW(run, moduleName, commandName, context);
+		#IF LIGHTWEIGHT THEN
+		p.childActivity := children;
+		#END
 		run.Join(Loaded, res, msg); (* Avoid race condition described in Modules.Mod *)
 		IF (res = Ok) & (Wait IN flags) THEN run.Join(Finished, res, msg); END
 	END;
@@ -260,6 +280,9 @@ PROCEDURE Init;
 VAR s: ARRAY 4 OF CHAR;
 BEGIN
 	emptyString[0] := 0X;
+	#IF LIGHTWEIGHT THEN
+	Machine.GetConfig("ActivityWorkers", workerCount);
+	#END
 	Machine.GetConfig("TraceCommands", s);
 	trace := (s[0] = "1");
 	NEW(silentWriter, SendNothing, 128);
