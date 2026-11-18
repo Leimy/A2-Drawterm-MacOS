@@ -1,5 +1,5 @@
 MODULE DarwinLoopCheckpointProbe;
-IMPORT A := DarwinActivities, Commands;
+IMPORT A := DarwinActivities, Commands, Objects, Kernel;
 
 CONST Limit = 3 * A.CheckpointInterval;
 TYPE
@@ -37,8 +37,45 @@ BEGIN
 	s.Close
 END Check;
 
+TYPE
+	Gate = OBJECT
+	VAR posted: BOOLEAN;
+		PROCEDURE Wait;
+		BEGIN {EXCLUSIVE} AWAIT(posted) END Wait;
+		PROCEDURE Post;
+		BEGIN {EXCLUSIVE} posted := TRUE END Post;
+	END Gate;
+
+	Waiting = OBJECT
+	VAR gate: Gate; woke: BOOLEAN;
+	BEGIN {ACTIVE}
+		IF gate = NIL THEN Objects.Sleep(20) ELSE gate.Wait END;
+		woke := TRUE
+	END Waiting;
+
+	Busy = OBJECT
+	VAR peer: Waiting; start: SIGNED32; sawWake: BOOLEAN;
+	BEGIN {ACTIVE}
+		IF peer.gate # NIL THEN peer.gate.Post END;
+		start := Kernel.GetTicks();
+		WHILE ~peer.woke & (Kernel.GetTicks() - start < 2000) DO END;
+		sawWake := peer.woke
+	END Busy;
+
+PROCEDURE CheckExternalWake(timer: BOOLEAN);
+VAR s: A.Scheduler; peer: Waiting; busy: Busy;
+BEGIN
+	NEW(s); s.NextActive; NEW(peer);
+	IF ~timer THEN NEW(peer.gate) END;
+	s.NextActive; NEW(busy); busy.peer := peer;
+	ASSERT(s.Dispatch()); ASSERT(~peer.woke);
+	s.Drain; s.Close; ASSERT(busy.sawWake)
+END CheckExternalWake;
+
 PROCEDURE Run*(context: Commands.Context);
-BEGIN Check(TRUE); context.out.String("PASS compiler checkpoints in WHILE, REPEAT, FOR and LOOP; EXCLUSIVE and UNCOOPERATIVE respected"); context.out.Ln END Run;
+BEGIN Check(TRUE); CheckExternalWake(TRUE); CheckExternalWake(FALSE);
+	context.out.String("PASS sleeping and notified peers wake during a busy checkpointed loop on one worker"); context.out.Ln;
+	context.out.String("PASS compiler checkpoints in WHILE, REPEAT, FOR and LOOP; EXCLUSIVE and UNCOOPERATIVE respected"); context.out.Ln END Run;
 
 PROCEDURE Control*(context: Commands.Context);
 BEGIN Check(FALSE); context.out.String("PASS default compilation leaves loops uninterrupted"); context.out.Ln END Control;

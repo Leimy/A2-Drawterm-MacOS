@@ -188,6 +188,9 @@ TYPE
 		PROCEDURE BudgetExpired;
 		BEGIN
 			worker.checkpointBudget := CheckpointInterval;
+			(* A timer or notification can become ready while this fiber is
+			   the only runnable one. Check before granting it another turn. *)
+			IF (head = NIL) & (external # NIL) THEN PollExternal(FALSE) END;
 			IF head # NIL THEN running.Yield END
 		END BudgetExpired;
 
