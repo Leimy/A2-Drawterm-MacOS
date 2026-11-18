@@ -10,7 +10,11 @@ MODULE Sockets;	(** AUTHOR "G.F.";  PURPOSE "Interface to Unix sockets" *)
 (*	2007.07.06	g.f.	IP address format converted to IP.Adr *)
 (*  	2020.04.06  PDR     perror on socket failure*)
 
-IMPORT S := SYSTEM, Unix, Trace, IP, Objects;
+IMPORT S := SYSTEM, Unix, Trace, IP, Objects
+	#IF LIGHTWEIGHT THEN
+	, Glue
+	#END
+	;
 
 CONST
 
@@ -162,6 +166,42 @@ VAR
 	END Bind;
 
 	#IF LIGHTWEIGHT THEN
+	VAR setNonblocking: PROCEDURE {C}(fd: INTEGER): INTEGER;
+		pollSocket: PROCEDURE {C}(fd, writing: INTEGER): INTEGER;
+
+	PROCEDURE PrepareStream*(fd: INTEGER): BOOLEAN;
+	BEGIN RETURN setNonblocking(fd) # 0 END PrepareStream;
+
+	PROCEDURE TransferStream(fd: INTEGER; buf: ADDRESS; VAR len: SIZE; writing: BOOLEAN): BOOLEAN;
+	VAR n: SIZE; err, direction: INTEGER; p: Objects.Process;
+	BEGIN
+		p := Objects.CurrentProcess(); IF writing THEN direction := 1 ELSE direction := 0 END;
+		LOOP
+			IF writing THEN n := send(fd, buf, len, Unix.MsgNoSignal)
+			ELSE n := recv(fd, buf, len, 0) END;
+			IF n >= 0 THEN len := n; RETURN TRUE END;
+			err := Unix.errno();
+			IF err = Unix.EAGAIN THEN
+				IF (p # NIL) & (p.awaitSocket # NIL) THEN
+					IF ~p.awaitSocket(fd, writing) THEN EXIT END
+				ELSIF pollSocket(fd, direction) = 0 THEN EXIT END
+			ELSIF err # Unix.EINTR THEN EXIT END
+		END;
+		len := 0; RETURN FALSE
+	END TransferStream;
+
+	PROCEDURE SendStream*(fd: INTEGER; CONST buf: ARRAY OF CHAR; pos: SIZE; VAR len: SIZE): BOOLEAN;
+	BEGIN
+		ASSERT((pos >= 0) & (len > 0) & (pos <= LEN(buf)-len));
+		RETURN TransferStream(fd, ADDRESSOF(buf[pos]), len, TRUE)
+	END SendStream;
+
+	PROCEDURE RecvStream*(fd: INTEGER; VAR buf: ARRAY OF CHAR; pos: SIZE; VAR len: SIZE): BOOLEAN;
+	BEGIN
+		ASSERT((pos >= 0) & (len > 0) & (pos <= LEN(buf)-len));
+		RETURN TransferStream(fd, ADDRESSOF(buf[pos]), len, FALSE)
+	END RecvStream;
+
 	PROCEDURE ShutdownReadWrite*(s: INTEGER);
 	BEGIN IGNORE shutdown(s, Unix.ShutRDWR) END ShutdownReadWrite;
 	#END
@@ -227,13 +267,13 @@ VAR
 	BEGIN
 		#IF LIGHTWEIGHT THEN
 		p := Objects.CurrentProcess();
-		IF (p # NIL) & (p.awaitReadable # NIL) & (flags = 0) THEN
+		IF (p # NIL) & (p.awaitSocket # NIL) & (flags = 0) THEN
 			LOOP
 				res := recv(s, ADDRESSOF(buf[pos]), len, Unix.MsgDontWait);
 				IF res >= 0 THEN len := res; RETURN TRUE END;
 				err := Unix.errno();
 				IF err = Unix.EAGAIN THEN
-					IF ~p.awaitReadable(s) THEN EXIT END
+					IF ~p.awaitSocket(s, FALSE) THEN EXIT END
 				ELSIF err # Unix.EINTR THEN EXIT END
 			END;
 			len := 0; RETURN FALSE
@@ -407,6 +447,11 @@ VAR
 	PROCEDURE Init;
 	VAR slib: ADDRESS;
 	BEGIN
+		#IF LIGHTWEIGHT THEN
+		slib := Glue.dlopen(ADDRESSOF("@executable_path/libA2Activities.dylib"), 2); ASSERT(slib # 0);
+		Unix.Dlsym(slib, "activity_nonblocking", ADDRESSOF(setNonblocking));
+		Unix.Dlsym(slib, "activity_poll_socket", ADDRESSOF(pollSocket));
+		#END
 		IF Unix.Version = "Solaris" THEN
 			slib := Unix.Dlopen( "libsocket.so.1", 2 );
 			IF slib = 0 THEN  slib := Unix.Dlopen( "libsocket.so", 2 )  END;

@@ -214,6 +214,7 @@ CONST
 
 	(* recv *)
 		MsgPeek*		= 2;
+		MsgNoSignal* = 80000H; (* suppress SIGPIPE on send *)
 		MsgDontWait*	= 80H;		(* non blocking read *)
 
 	(* shutdown *)

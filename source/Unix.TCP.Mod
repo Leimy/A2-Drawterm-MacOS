@@ -46,10 +46,17 @@ TYPE
 
 			PROCEDURE SendPacket( CONST data: ARRAY OF CHAR;  ofs, len: SIZE ): BOOLEAN;
 			VAR n: SIZE;
-			BEGIN {EXCLUSIVE}
+			BEGIN
+				#IF ~LIGHTWEIGHT THEN
+				{EXCLUSIVE}
+				#END
 				WHILE len > 0 DO
 					n := len;
-					IF ~Sockets.Send( conn.socket, data, ofs, n ) THEN  RETURN FALSE  END;
+					#IF LIGHTWEIGHT THEN
+					IF ~Sockets.SendStream(conn.socket, data, ofs, n) OR (n = 0) THEN RETURN FALSE END;
+					#ELSE
+					IF ~Sockets.Send( conn.socket, data, ofs, n ) OR (n = 0) THEN  RETURN FALSE  END;
+					#END
 					DEC( len, n );  INC( ofs, n )
 				END;
 				RETURN TRUE
@@ -60,30 +67,39 @@ TYPE
 
 #IF LIGHTWEIGHT THEN
 TYPE
-	(* Release this monitor before a blocking read or a fiber park. A concurrent
-	   Close shuts the socket down immediately, then the last reader closes it. *)
-	ReceiveState = OBJECT
-	VAR reading: BOOLEAN;
-		PROCEDURE Acquire(c: Connection): BOOLEAN;
+	(* Serialize operations in each direction. Shutdown wakes parked callers;
+	   the last operation to finish releases the descriptor. *)
+	IOState = OBJECT
+	VAR reading, writing: BOOLEAN;
+		PROCEDURE Acquire(c: Connection; send: BOOLEAN): BOOLEAN;
 		BEGIN {EXCLUSIVE}
-			AWAIT(~reading); reading := c.state IN OpenStates; RETURN reading
+			IF send THEN
+				AWAIT(~writing OR (c.state # Established));
+				IF c.state # Established THEN RETURN FALSE END; writing := TRUE
+			ELSE
+				AWAIT(~reading OR ~(c.state IN OpenStates));
+				IF ~(c.state IN OpenStates) THEN RETURN FALSE END; reading := TRUE
+			END;
+			RETURN TRUE
 		END Acquire;
 
-		PROCEDURE Finish(c: Connection; failed: BOOLEAN);
+		PROCEDURE Finish(c: Connection; send, failed: BOOLEAN);
 		BEGIN {EXCLUSIVE}
-			IF c.state = Closed THEN IGNORE Unix.close(c.socket)
-			ELSIF failed THEN Sockets.Close(c.socket); c.state := Closed END;
-			reading := FALSE
+			IF send THEN writing := FALSE ELSE reading := FALSE END;
+			IF failed & (c.state IN OpenStates) THEN
+				c.state := Closed; Sockets.ShutdownReadWrite(c.socket)
+			END;
+			IF (c.state = Closed) & ~reading & ~writing THEN IGNORE Unix.close(c.socket) END
 		END Finish;
 
 		PROCEDURE Close(c: Connection);
 		BEGIN {EXCLUSIVE}
 			IF c.state IN OpenStates THEN
 				c.state := Closed;
-				IF reading THEN Sockets.ShutdownReadWrite(c.socket) ELSE Sockets.Close(c.socket) END
+				IF reading OR writing THEN Sockets.ShutdownReadWrite(c.socket) ELSE Sockets.Close(c.socket) END
 			END
 		END Close;
-	END ReceiveState;
+	END IOState;
 #END
 
 TYPE
@@ -109,7 +125,7 @@ TYPE
 
 
 				#IF LIGHTWEIGHT THEN
-				VAR receiver: ReceiveState;
+				VAR io: IOState;
 				#END
 
 				PROCEDURE & Init*;
@@ -117,7 +133,7 @@ TYPE
 					state := Unused;
 					NEW( sender, SELF );
 					#IF LIGHTWEIGHT THEN
-					NEW(receiver);
+					NEW(io);
 					#END
 					irs := 0; iss := 0;  rcvnxt := 0;  sndnxt := 0
 				END Init;
@@ -139,7 +155,11 @@ TYPE
 							IF trace THEN  Out.String( "(inout) " )  END;
 							(* active open (connect) *)
 							foreignAdr := Sockets.NewSocketAdr( fip, fport );
-							IF Sockets.Connect( socket, foreignAdr ) THEN
+							IF Sockets.Connect( socket, foreignAdr )
+							#IF LIGHTWEIGHT THEN
+								& Sockets.PrepareStream(socket)
+							#END
+							THEN
 								IGNORE Sockets.SetLinger( socket );
 								SELF.fip := fip;  SELF.fport := fport;
 								localAdr := Sockets.GetSockName( socket );
@@ -190,9 +210,17 @@ TYPE
 
 				(** Send data on a TCP connection. *)
 				PROCEDURE Send*( CONST data: ARRAY OF CHAR;  ofs, len: SIZE;  propagate: BOOLEAN;  VAR res: INTEGER );
+				#IF LIGHTWEIGHT THEN
+				VAR acquired, completed: BOOLEAN;
+				#END
 				BEGIN
 					IF trace THEN  Out.String( "Send: socket=" );  Out.Int( socket, 0 )  END;
+					#IF LIGHTWEIGHT THEN
+					acquired := io.Acquire(SELF, TRUE);
+					IF acquired THEN
+					#ELSE
 					IF state = Established THEN
+					#END
 						IF sender.SendPacket( data, ofs, len ) THEN
 							res := Ok
 						ELSE
@@ -201,7 +229,13 @@ TYPE
 					ELSE
 						res := NotConnected (* Send on a Connection with state=Listen *)
 					END;
-					INC( sndnxt )
+					INC( sndnxt );
+					#IF LIGHTWEIGHT THEN
+					completed := TRUE
+				FINALLY
+					IF acquired THEN io.Finish(SELF, TRUE, ~completed) END;
+					IF ~completed THEN HALT(18) END
+					#END
 				END Send;
 
 				PROCEDURE ReadBytes(VAR data: ARRAY OF CHAR; ofs, size, min: SIZE; VAR len: SIZE; VAR res: INTEGER);
@@ -210,7 +244,11 @@ TYPE
 					IF trace THEN Out.String("Receive: socket="); Out.Int(socket, 0); Out.String(" min="); Out.Int(min, 0) END;
 					REPEAT
 						x := size;
+						#IF LIGHTWEIGHT THEN
+						IF ~Sockets.RecvStream(socket, data, ofs, x) OR (x = 0) THEN res := NotConnected; RETURN END;
+						#ELSE
 						IF ~Sockets.Recv(socket, data, ofs, x, 0) OR (x = 0) THEN res := NotConnected; RETURN END;
+						#END
 						DEC(size, x); INC(len, x); INC(ofs, x)
 					UNTIL len >= min;
 					INC(rcvnxt)
@@ -231,13 +269,13 @@ TYPE
 					ASSERT((ofs >= 0) & (size >= 0) & (ofs <= LEN(data)-size) & (min <= size));
 					len := 0; res := Ok;
 					IF size > 0 THEN
-						acquired := receiver.Acquire(SELF);
+						acquired := io.Acquire(SELF, FALSE);
 						IF acquired THEN ReadBytes(data, ofs, size, min, len, res)
 						ELSE res := NotConnected; INC(rcvnxt) END
 					END;
 					completed := TRUE
 				FINALLY
-					IF acquired THEN receiver.Finish(SELF, ~completed OR (res # Ok)) END;
+					IF acquired THEN io.Finish(SELF, FALSE, ~completed OR (res # Ok)) END;
 					IF ~completed THEN HALT(18) END (* rethrow after releasing the reader *)
 				END Receive;
 				#ELSE
@@ -311,7 +349,7 @@ TYPE
 				PROCEDURE Close*;
 				BEGIN
 					#IF LIGHTWEIGHT THEN
-					receiver.Close(SELF)
+					io.Close(SELF)
 					#ELSE
 					Sockets.Close(socket); state := Closed
 					#END
@@ -333,7 +371,12 @@ TYPE
 					END;
 					IF state = Listen THEN
 						newsocket := Sockets.Accept( socket );
-						IF newsocket > 0 THEN
+						#IF LIGHTWEIGHT THEN
+						IF (newsocket >= 0) & ~Sockets.PrepareStream(newsocket) THEN
+							Sockets.Close(newsocket); newsocket := -1
+						END;
+						#END
+						IF newsocket >= 0 THEN
 							peerAdr := Sockets.GetPeerName( newsocket );
 							NEW( client );
 							client.int := int;

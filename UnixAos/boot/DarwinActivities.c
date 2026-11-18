@@ -4,6 +4,8 @@
 #include <ucontext.h>
 #include <dispatch/dispatch.h>
 #include <fcntl.h>
+#include <errno.h>
+#include <poll.h>
 #include <sys/mman.h>
 #include <stdint.h>
 #include <pthread.h>
@@ -117,6 +119,22 @@ void activity_close(Pool *p)
     free(p);
 }
 
+/* Set once on a private connected TCP socket, before publishing it. Darwin
+   send() can block for buffer space even when passed MSG_DONTWAIT. */
+int activity_nonblocking(int fd)
+{
+    int flags = fcntl(fd, F_GETFL);
+    return flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
+}
+
+int activity_poll_socket(int fd, int writing)
+{
+    struct pollfd p = { .fd = fd, .events = writing ? POLLOUT : POLLIN };
+    int result;
+    do { result = poll(&p, 1, -1); } while (result < 0 && errno == EINTR);
+    return result > 0 && !(p.revents & POLLNVAL);
+}
+
 /* GCD only touches native storage. The owning A2 worker picks the fiber. */
 typedef struct {
     dispatch_source_t source;
@@ -124,11 +142,11 @@ typedef struct {
     int fd, ready;
     pthread_mutex_t *lock;
     pthread_cond_t *changed;
-} ReadWatch;
+} SocketWatch;
 
-static void read_event(void *context)
+static void socket_event(void *context)
 {
-    ReadWatch *w = context;
+    SocketWatch *w = context;
     dispatch_source_cancel(w->source); /* one notification per registration */
     pthread_mutex_lock(w->lock);
     w->ready = 1;
@@ -136,22 +154,22 @@ static void read_event(void *context)
     pthread_mutex_unlock(w->lock);
 }
 
-static void read_cancelled(void *context)
+static void socket_cancelled(void *context)
 {
-    ReadWatch *w = context;
+    SocketWatch *w = context;
     close(w->fd);
     dispatch_semaphore_signal(w->stopped);
 }
 
-ReadWatch *activity_watch_read(int fd, pthread_mutex_t *lock, pthread_cond_t *changed)
+SocketWatch *activity_watch_socket(int fd, int writing, pthread_mutex_t *lock, pthread_cond_t *changed)
 {
-    ReadWatch *w = calloc(1, sizeof(*w));
+    SocketWatch *w = calloc(1, sizeof(*w));
     if (!w) return NULL;
     w->fd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
     if (w->fd < 0) { free(w); return NULL; }
     w->stopped = dispatch_semaphore_create(0);
     if (w->stopped) {
-        w->source = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, w->fd, 0,
+        w->source = dispatch_source_create(writing ? DISPATCH_SOURCE_TYPE_WRITE : DISPATCH_SOURCE_TYPE_READ, w->fd, 0,
             dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0));
     }
     if (!w->source) {
@@ -163,16 +181,16 @@ ReadWatch *activity_watch_read(int fd, pthread_mutex_t *lock, pthread_cond_t *ch
     w->lock = lock;
     w->changed = changed;
     dispatch_set_context(w->source, w);
-    dispatch_source_set_event_handler_f(w->source, read_event);
-    dispatch_source_set_cancel_handler_f(w->source, read_cancelled);
+    dispatch_source_set_event_handler_f(w->source, socket_event);
+    dispatch_source_set_cancel_handler_f(w->source, socket_cancelled);
     dispatch_resume(w->source);
     return w;
 }
 
 /* The caller holds the inbox mutex. */
-int activity_read_ready(ReadWatch *w) { return w->ready; }
+int activity_socket_ready(SocketWatch *w) { return w->ready; }
 
-void activity_unwatch_read(ReadWatch *w)
+void activity_unwatch_socket(SocketWatch *w)
 {
     dispatch_source_cancel(w->source);
     dispatch_semaphore_wait(w->stopped, DISPATCH_TIME_FOREVER);

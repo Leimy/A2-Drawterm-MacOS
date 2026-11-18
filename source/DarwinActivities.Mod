@@ -8,7 +8,7 @@ CONST CheckpointInterval* = 256; (* work checkpoints per turn *)
 TYPE
 	Activity* = OBJECT
 	VAR owner: Scheduler; next: Activity; fiber: ADDRESS; queued: BOOLEAN;
-		externalNext: Activity; readWatch: ADDRESS; posted: BOOLEAN; waitNext: Activity; guard: Objects.ActivityCondition; frame: ADDRESS;
+		externalNext: Activity; socketWatch: ADDRESS; posted: BOOLEAN; waitNext: Activity; guard: Objects.ActivityCondition; frame: ADDRESS;
 		children: BOOLEAN; context: ANY; subject: Objects.ActivitySelf;
 
 		PROCEDURE Run*;
@@ -206,15 +206,16 @@ TYPE
 			RETURN failed
 		END WaitExternal;
 
-		PROCEDURE WaitReadable(fd: SIGNED32): BOOLEAN;
-		VAR a: Activity; cancelled: BOOLEAN;
+		PROCEDURE WaitSocket(fd: SIGNED32; writing: BOOLEAN): BOOLEAN;
+		VAR a: Activity; cancelled: BOOLEAN; direction: SIGNED32;
 		BEGIN
+			IF writing THEN direction := 1 ELSE direction := 0 END;
 			a := running; InitInbox; a.posted := FALSE;
-			a.readWatch := watchRead(fd, inboxLock, changed); IF a.readWatch = 0 THEN RETURN FALSE END;
-			cancelled := WaitExternal(); unwatchRead(a.readWatch); a.readWatch := 0;
+			a.socketWatch := watchSocket(fd, direction, inboxLock, changed); IF a.socketWatch = 0 THEN RETURN FALSE END;
+			cancelled := WaitExternal(); unwatchSocket(a.socketWatch); a.socketWatch := 0;
 			IF cancelled THEN HALT(Objects.ActivityTreeCancelled) END;
 			RETURN TRUE
-		END WaitReadable;
+		END WaitSocket;
 
 		PROCEDURE PollExternal(wait: BOOLEAN);
 		VAR a, next, prev: Activity;
@@ -225,7 +226,7 @@ TYPE
 				prev := NIL; a := external;
 				WHILE a # NIL DO
 					next := a.externalNext;
-					IF a.posted OR failed OR ((a.readWatch # 0) & (readReady(a.readWatch) # 0)) THEN
+					IF a.posted OR failed OR ((a.socketWatch # 0) & (socketReady(a.socketWatch) # 0)) THEN
 						IF prev = NIL THEN external := next ELSE prev.externalNext := next END;
 						a.externalNext := NIL; a.Wake
 					ELSE prev := a END;
@@ -259,8 +260,8 @@ TYPE
 			hostContext := Objects.CurrentContext(); Objects.SetContext(a.context); worker.activitySelf := a.subject;
 			IF a.children THEN worker.childActivity := Adopt END;
 			worker.checkpointBudget := CheckpointInterval; worker.checkpointDue := BudgetExpired;
-			worker.prepareWait := PrepareWait; worker.waitExternal := WaitExternal; worker.awaitReadable := WaitReadable;
-			done := resume(a.fiber) # 0; worker.prepareWait := NIL; worker.waitExternal := NIL; worker.awaitReadable := NIL;
+			worker.prepareWait := PrepareWait; worker.waitExternal := WaitExternal; worker.awaitSocket := WaitSocket;
+			done := resume(a.fiber) # 0; worker.prepareWait := NIL; worker.waitExternal := NIL; worker.awaitSocket := NIL;
 			worker.checkpointDue := NIL; worker.childActivity := NIL;
 			worker.activitySelf := NIL; a.context := Objects.CurrentContext(); Objects.SetContext(hostContext);
 			IF done THEN
@@ -286,9 +287,9 @@ TYPE
 	END Scheduler;
 
 VAR library: ADDRESS;
-	watchRead: PROCEDURE {C}(fd: SIGNED32; lock, changed: ADDRESS): ADDRESS;
-	readReady: PROCEDURE {C}(watch: ADDRESS): SIGNED32;
-	unwatchRead: PROCEDURE {C}(watch: ADDRESS);
+	watchSocket: PROCEDURE {C}(fd, writing: SIGNED32; lock, changed: ADDRESS): ADDRESS;
+	socketReady: PROCEDURE {C}(watch: ADDRESS): SIGNED32;
+	unwatchSocket: PROCEDURE {C}(watch: ADDRESS);
 	stackLimit: PROCEDURE {C}(pool, sp: ADDRESS): ADDRESS;
 	newPool: PROCEDURE {C}(): ADDRESS;
 	newFiber: PROCEDURE {C}(pool: ADDRESS; entry: PROCEDURE {C}(arg: ADDRESS); arg: ADDRESS): ADDRESS;
@@ -303,8 +304,8 @@ PROCEDURE AwaitReadable*(fd: SIGNED32): BOOLEAN;
 VAR worker: Objects.Process;
 BEGIN
 	worker := Objects.CurrentProcess();
-	IF (worker = NIL) OR (worker.awaitReadable = NIL) THEN RETURN FALSE END;
-	RETURN worker.awaitReadable(fd)
+	IF (worker = NIL) OR (worker.awaitSocket = NIL) THEN RETURN FALSE END;
+	RETURN worker.awaitSocket(fd, FALSE)
 END AwaitReadable;
 
 (* Call between bounded chunks of CPU work, outside locks and AWAIT predicates.
@@ -321,9 +322,9 @@ BEGIN Heaps.RegisterCandidates(adr, size) END Candidates;
 
 BEGIN
 	library := Glue.dlopen(ADDRESSOF("@executable_path/libA2Activities.dylib"), 2); ASSERT(library # 0);
-	Unix.Dlsym(library, "activity_watch_read", ADDRESSOF(watchRead));
-	Unix.Dlsym(library, "activity_read_ready", ADDRESSOF(readReady));
-	Unix.Dlsym(library, "activity_unwatch_read", ADDRESSOF(unwatchRead));
+	Unix.Dlsym(library, "activity_watch_socket", ADDRESSOF(watchSocket));
+	Unix.Dlsym(library, "activity_socket_ready", ADDRESSOF(socketReady));
+	Unix.Dlsym(library, "activity_unwatch_socket", ADDRESSOF(unwatchSocket));
 	Unix.Dlsym(library, "activity_stack_limit", ADDRESSOF(stackLimit));
 	Unix.Dlsym(library, "activity_pool", ADDRESSOF(newPool));
 	Unix.Dlsym(library, "activity_new", ADDRESSOF(newFiber));

@@ -62,6 +62,7 @@ if "$command_mode"; then
     exit $?
 fi
 run do DarwinTCPActivityProbe.Run
+grep -F "PASS TCP.Send: parked writer" run.log
 grep -F "PASS TCP.Receive loopback" run.log
 run compile -p=DarwinA2 DarwinLoopCheckpointProbe.Mod
 # The rebuilt compiler can create objects without owner read permission.
@@ -154,9 +155,10 @@ if ! with_deadline 20 ./OberonLoader do DarwinActivitiesProbe.CheckSocketRecover
     exit 1
 fi
 
-export AOSCONFIG="$base_config ActivityWorkers 1 ActivityCommands DarwinTCPActivityProbe.TrapReceive:-"
+export AOSCONFIG="$base_config ActivityWorkers 1 ActivityCommands DarwinTCPActivityProbe.TrapReceive:-,DarwinTCPActivityProbe.TrapSend:-"
 if ! with_deadline 20 ./OberonLoader do DarwinTCPActivityProbe.CheckCancellation > tcpwait.log 2>&1 ||
-   ! grep -aF 'PASS cancellation releases the TCP reader' tcpwait.log; then
+   ! grep -aF 'PASS cancellation releases the TCP reader' tcpwait.log ||
+   ! grep -aF 'PASS cancellation unwinds a parked TCP sender' tcpwait.log; then
     cat tcpwait.log >&2
     exit 1
 fi
