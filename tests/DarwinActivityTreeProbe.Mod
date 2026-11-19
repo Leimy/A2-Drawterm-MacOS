@@ -38,7 +38,7 @@ END Cancel;
 PROCEDURE Run*(context: Commands.Context);
 VAR n: SIGNED32; used: SIZE; sieve: Sieve;
 BEGIN
-	context.arg.Int(n, FALSE); NEW(sieve); sieve.context := context;
+	IF ~context.arg.GetInteger(n, FALSE) THEN HALT(99) END; NEW(sieve); sieve.context := context;
 	ASSERT(ActivityTrees.Run(sieve.Run, n, used));
 	context.out.String("Sieve workers used: "); context.out.Int(used,0); context.out.Ln;
 END Run;

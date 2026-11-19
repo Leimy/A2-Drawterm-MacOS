@@ -16,126 +16,12 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-typedef struct Pool Pool;
-typedef struct Fiber Fiber;
-typedef void (*Body)(void *);
-typedef void (*Visit)(uintptr_t, size_t);
-
-struct Pool {
-    ucontext_t host;
-    uintptr_t host_low;
-    pthread_t worker;
-    Fiber *first, *current;
-};
-
-struct Fiber {
-    ucontext_t context;
-    Pool *pool;
-    Fiber *next, *prev;
-    char *mapping;
-    size_t total, guard;
-    Body body;
-    void *object;
-    int done;
-};
-
-/* makecontext's variadic arguments are ints. Obtain the current fiber from
-   the pinned worker instead of narrowing a pointer to an int. */
-static _Thread_local Fiber *starting;
-
-static void start(void)
+static uintptr_t host_stack_low(pthread_t worker)
 {
-    Fiber *f = starting;
-    f->body(f->object);
-    f->done = 1;
-    /* uc_link restores the worker. Only the worker frees this stack. */
+    return (uintptr_t)pthread_get_stackaddr_np(worker) - pthread_get_stacksize_np(worker);
 }
 
-Pool *activity_pool(void)
-{
-    Pool *p = calloc(1, sizeof(*p));
-    if (p) {
-        pthread_t worker = pthread_self();
-        p->worker = worker;
-        p->host_low = (uintptr_t)pthread_get_stackaddr_np(worker) -
-                      pthread_get_stacksize_np(worker);
-    }
-    return p;
-}
-
-Fiber *activity_new(Pool *p, Body body, void *object)
-{
-    size_t page = (size_t)sysconf(_SC_PAGESIZE);
-    size_t size = 4 * page;
-    Fiber *f = calloc(1, sizeof(*f));
-    if (!f) return NULL;
-    f->guard = page;
-    f->total = page + size;
-    f->mapping = mmap(NULL, f->total, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
-    if (f->mapping == MAP_FAILED) { free(f); return NULL; }
-    if (mprotect(f->mapping + page, size, PROT_READ | PROT_WRITE) ||
-        getcontext(&f->context)) {
-        munmap(f->mapping, f->total);
-        free(f);
-        return NULL;
-    }
-    f->pool = p;
-    f->body = body;
-    f->object = object;
-    f->context.uc_stack.ss_sp = f->mapping + page;
-    f->context.uc_stack.ss_size = size;
-    f->context.uc_link = &p->host;
-    makecontext(&f->context, start, 0);
-    f->next = p->first;
-    if (f->next) f->next->prev = f;
-    p->first = f;
-    return f;
-}
-
-int activity_resume(Fiber *f)
-{
-    Pool *p = f->pool;
-    p->current = starting = f;
-    if (swapcontext(&p->host, &f->context)) abort();
-    p->current = starting = NULL;
-    return f->done;
-}
-
-void activity_park(Fiber *f)
-{
-    if (swapcontext(&f->context, &f->pool->host)) abort();
-}
-
-void activity_drop(Fiber *f)
-{
-    if (f->prev) f->prev->next = f->next;
-    else f->pool->first = f->next;
-    if (f->next) f->next->prev = f->prev;
-    munmap(f->mapping, f->total);
-    free(f);
-}
-
-void activity_close(Pool *p)
-{
-    if (p->first || p->current) abort();
-    free(p);
-}
-
-/* Set once on a private connected TCP socket, before publishing it. Darwin
-   send() can block for buffer space even when passed MSG_DONTWAIT. */
-int activity_nonblocking(int fd)
-{
-    int flags = fcntl(fd, F_GETFL);
-    return flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
-}
-
-int activity_poll_socket(int fd, int writing)
-{
-    struct pollfd p = { .fd = fd, .events = writing ? POLLOUT : POLLIN };
-    int result;
-    do { result = poll(&p, 1, -1); } while (result < 0 && errno == EINTR);
-    return result > 0 && !(p.revents & POLLNVAL);
-}
+#include "UnixActivityFibers.inc"
 
 /* A listening socket cannot be woken with shutdown on Darwin. Watch the
    socket and an explicit Close notification through one pollable queue. */
@@ -164,13 +50,6 @@ int activity_cancel_setup(int q)
 
 /* Use the same monotonic clock for the deadline check and remaining time.
    Recheck after every notification, timeout, or spurious wakeup. */
-int64_t activity_now(void)
-{
-    struct timespec ts;
-    if (clock_gettime(CLOCK_MONOTONIC, &ts)) abort();
-    return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
-}
-
 void activity_wait_until(pthread_cond_t *changed, pthread_mutex_t *lock, int64_t deadline)
 {
     int64_t ns = deadline - activity_now();
@@ -242,16 +121,6 @@ void activity_unwatch_socket(SocketWatch *w)
     dispatch_release(w->source);
     dispatch_release(w->stopped);
     free(w);
-}
-
-/* Bound trap unwinding to the stack which contains the interrupted SP. */
-uintptr_t activity_stack_limit(Pool *p, uintptr_t sp)
-{
-    Fiber *f = p->current;
-    if (!f) return 0;
-    uintptr_t low = (uintptr_t)f->mapping + f->guard;
-    uintptr_t high = (uintptr_t)f->mapping + f->total;
-    return sp >= low && sp < high ? high : 0;
 }
 
 /* Called with the A2 heaps lock and the worker stopped (or collecting

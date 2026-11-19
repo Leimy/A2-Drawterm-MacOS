@@ -256,6 +256,7 @@ TYPE
 		gcContext: GCContext;
 		#IF LIGHTWEIGHT THEN
 		stackScanner*: StackScanner;
+		suspendedRegisters: Unix.McontextDesc;
 		stackLimit*: PROCEDURE {DELEGATE}(sp: ADDRESS): ADDRESS;
 		nextActivity*, childActivity*: ActivityStart;
 		sharedChild*: SharedStart;
@@ -299,6 +300,10 @@ TYPE
 
 			#IF LIGHTWEIGHT THEN
 			IF stackScanner # NIL THEN
+				IF SELF # CurrentProcess() THEN
+					Heaps.RegisterCandidates(ADDRESSOF(suspendedRegisters), SIZEOF(Unix.McontextDesc));
+					IF suspendedRegisters.r_sp # 0 THEN sp := suspendedRegisters.r_sp END
+				END;
 				stackScanner(sp, sb)
 			ELSE
 			#END
@@ -1029,6 +1034,9 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 	VAR p: Process; context: Unix.McontextDesc;
 	BEGIN
 		p := CurrentProcess( );
+		#IF LIGHTWEIGHT THEN
+		IF p.stackScanner # NIL THEN Unix.CopyContext(ctxt.mc, p.suspendedRegisters) END;
+		#END
 		IF p.gcContext.nextPos = 0 THEN  (* in A2 *)
 			Unix.CopyContext( ctxt.mc, context );
 			p.state.PC := context.r_pc;
@@ -1122,6 +1130,11 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 		IF CAS(startedMainProcess,FALSE,FALSE) THEN
 			cur := CurrentProcess();
 			IF cur # NIL THEN
+				#IF LIGHTWEIGHT THEN
+				(* The fiber scanner covers the host and every parked stack. A
+				   pthread-wide LIFO cannot represent interleaved foreign calls. *)
+				IF cur.stackScanner # NIL THEN RETURN END;
+				#END
 				ebp := SYSTEM.GetFramePointer();
 				sp := SYSTEM.GetStackPointer();
 				SYSTEM.GET(ebp+SIZEOF(ADDRESS), pc);
@@ -1138,6 +1151,9 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 		IF CAS(startedMainProcess,FALSE,FALSE) THEN
 			cur := CurrentProcess();
 			IF cur # NIL THEN
+				#IF LIGHTWEIGHT THEN
+				IF cur.stackScanner # NIL THEN RETURN END;
+				#END
 				cur.gcContext.RemoveContext();
 			END;
 		END;

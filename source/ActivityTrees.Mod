@@ -1,6 +1,6 @@
 MODULE ActivityTrees;
-(** Run an ordinary active-object tree on a fixed number of pinned workers. *)
-IMPORT A := DarwinActivities, Objects, Unix;
+(** Shared implementation of the ActivityTrees library introduced by this fork. *)
+IMPORT A := ActivityScheduler, Objects;
 
 CONST MaxWorkers* = 64;
 
@@ -19,7 +19,7 @@ TYPE
 		END Run;
 	END Job;
 
-	Lane = RECORD first, last: Job; thread: Unix.Thread_t; bodies: SIZE END;
+	Lane = RECORD first, last: Job; worker: Objects.Process; bodies: SIZE END;
 	Tree = OBJECT
 	VAR lanes: POINTER TO ARRAY OF Lane; next, live, stopped: SIZE; failed: BOOLEAN;
 
@@ -74,13 +74,15 @@ TYPE
 		PROCEDURE &Init(tree: Tree; id: SIZE);
 		BEGIN NEW(d); d.tree := tree; d.id := id END Init;
 	BEGIN {ACTIVE}
-		d.tree.lanes[d.id].thread := Unix.ThrThis();
+		d.tree.lanes[d.id].worker := Objects.CurrentProcess();
 		NEW(d.scheduler); d.scheduler.Start(d); d.scheduler.Drain;
 		d.scheduler.Close; d.tree.Stop
 	END Host;
 
-(* Call from an ordinary native process. Workers count excludes this joining caller.
-   used reports how many distinct pthreads dispatched application bodies. *)
+(** From a native process, run body and join its ordinary active descendants.
+    workers requests 1..MaxWorkers workers in addition to the waiting caller.
+    used counts distinct workers that ran a body, including the root.
+    Return TRUE on normal completion or FALSE after a body traps and the workers stop. *)
 PROCEDURE Run*(body: Body; workers: SIZE; VAR used: SIZE): BOOLEAN;
 VAR tree: Tree; root: Job; host: Host; i, k: SIZE; p: Objects.Process;
 BEGIN
@@ -91,7 +93,7 @@ BEGIN
 	tree.Join; used := 0;
 	FOR i := 0 TO workers-1 DO
 		IF tree.lanes[i].bodies > 0 THEN
-			k := 0; WHILE (k < i) & ((tree.lanes[k].bodies = 0) OR (tree.lanes[k].thread # tree.lanes[i].thread)) DO INC(k) END;
+			k := 0; WHILE (k < i) & ((tree.lanes[k].bodies = 0) OR (tree.lanes[k].worker # tree.lanes[i].worker)) DO INC(k) END;
 			IF k = i THEN INC(used) END
 		END
 	END;

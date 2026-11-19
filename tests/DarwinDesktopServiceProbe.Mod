@@ -19,12 +19,14 @@ TYPE
 		PROCEDURE WaitDelivered;
 		BEGIN {EXCLUSIVE} AWAIT(count = 2) END WaitDelivered;
 		PROCEDURE Timer;
-		VAR start: SIGNED32; delivered: BOOLEAN;
+		VAR start: SIGNED64; delivered: BOOLEAN;
 		BEGIN
 			Started;
 			REPEAT
-				start := Kernel.GetTicks(); Objects.Sleep(20);
-				ASSERT(Kernel.GetTicks() - start >= 19);
+				(* Kernel.GetTicks is refreshed by a separate timer thread. Measure
+				   the sleep directly even if that thread is delayed. *)
+				start := Unix.GetTimer(); Objects.Sleep(20);
+				ASSERT(Unix.GetTimer() - start >= 19000);
 				BEGIN {EXCLUSIVE} delivered := count = 2 END
 			UNTIL delivered
 		END Timer;

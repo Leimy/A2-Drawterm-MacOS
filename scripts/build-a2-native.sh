@@ -32,8 +32,8 @@ if [ "$target" = desktop-lightweight ]; then
     sed -e '1d' \
         -e '2s/Compiler.Compile /Compiler.Compile --traceModule=Trace /' \
         -e 's/--define=UNIX,AARCH64,DESKTOP /--define=UNIX,AARCH64,DESKTOP,LIGHTWEIGHT /g' \
-        -e '2s/ ServiceActivities.Mod / DarwinActivities.Mod Darwin.ActivityTrees.Mod DarwinServices.Mod DarwinCommandWorkers.Mod Darwin.ServiceActivities.Mod /' \
-        -e '3s/ ServiceActivities / DarwinActivities ActivityTrees DarwinServices DarwinCommandWorkers ServiceActivities /' \
+        -e '2s/ ServiceActivities.Mod / Darwin.ActivityPlatform.Mod Unix.ActivityScheduler.Mod DarwinActivities.Mod ActivityTrees.Mod DarwinServices.Mod DarwinCommandWorkers.Mod Darwin.ServiceActivities.Mod /' \
+        -e '3s/ ServiceActivities / ActivityPlatform ActivityScheduler DarwinActivities ActivityTrees DarwinServices DarwinCommandWorkers ServiceActivities /' \
         "$recipe" > "$output/NativeBuild.txt"
     cc -arch arm64 -mmacosx-version-min="${A2_MACOS_MIN_VERSION:-13.0}" -O2 -dynamiclib -Wno-deprecated-declarations \
         "$repo/UnixAos/boot/DarwinActivities.c" -o "$output/libA2Activities.dylib"

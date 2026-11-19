@@ -559,7 +559,7 @@ VAR
 	pthread_attr_setscope: PROCEDURE {C}(attr: ADDRESS; set: INTEGER);
 	pthread_attr_setdetachstate: PROCEDURE {C}(attr: ADDRESS; set: INTEGER);
 	pthread_attr_setstacksize: PROCEDURE {C}(attr: ADDRESS; stackSize: SIZE);
-	pthread_attr_getstacksize: PROCEDURE {C}(attr: ADDRESS; stackSize: ADDRESS);
+	pthread_attr_getstack: PROCEDURE {C}(attr, stackAddr, stackSize: ADDRESS): SIGNED32;
 	pthread_getattr_np: PROCEDURE {C} (thr: ADDRESS; attr: ADDRESS);
 	pthread_self-: PROCEDURE {C} (): Thread_t;
 
@@ -821,10 +821,12 @@ VAR
 		me := pthread_self();
 
 		pthread_getattr_np(me, ADDRESS OF attr);
-		pthread_attr_getstacksize (ADDRESS OF attr, ADDRESS OF size);
+		ASSERT(pthread_attr_getstack(ADDRESS OF attr, ADDRESS OF stack.sp, ADDRESS OF size) = 0);
 		pthread_attr_destroy(ADDRESS OF attr);
 
-		stack.sp := S.GetFramePointer () - size + AlternateStackSize;
+		(* ThrStart reserves the low end of the allocation for signals. An
+		   estimate based on the current frame can overlap suspended host frames. *)
+		ASSERT(size > AlternateStackSize);
 		stack.size := AlternateStackSize;
 		stack.flags := {};
 
@@ -1261,7 +1263,7 @@ VAR
 		Dlsym( libp, "pthread_attr_setscope", ADDRESSOF(pthread_attr_setscope) );
 		Dlsym( libp, "pthread_attr_setdetachstate", ADDRESSOF(pthread_attr_setdetachstate) );
 		Dlsym( libp, "pthread_attr_setstacksize", ADDRESSOF(pthread_attr_setstacksize) );
-		Dlsym( libp, "pthread_attr_getstacksize", ADDRESSOF(pthread_attr_getstacksize) );
+		Dlsym( libp, "pthread_attr_getstack", ADDRESSOF(pthread_attr_getstack) );
 		Dlsym( libp, "pthread_getattr_np", ADDRESSOF(pthread_getattr_np) );
 		Dlsym( libp, "pthread_self", ADDRESSOF(pthread_self) );
 

@@ -31,26 +31,50 @@ desktop. The sieve creates an ordinary active filter for each prime using
 `NEW`. All 168 filters run on one worker and finish before the command returns.
 [Sieve source](source/ConcurrentSieve.Mod)
 
-**Try one tree on four pthreads (experimental).** In the same checkout and
-with the same compiler setting, run:
+#### ActivityTrees on macOS and Linux (experimental)
+
+Active Oberon already provides active objects: `NEW` starts an object's
+`{ACTIVE}` body, `{EXCLUSIVE}` protects shared state, and `AWAIT` lets a body
+wait for a condition. **This fork added the `ActivityTrees` library** to run
+ordinary active objects on a chosen number of worker threads and join them
+as a group. Applications import `ActivityTrees`. macOS on Apple Silicon and Linux on
+x86-64 share the tree, scheduler, and fiber-switching logic. The build selects
+Darwin's Mach/GCD backend or Linux's glibc/poll backend. Each backend locates
+the live stack and registers for garbage collection.
+
+From a native A2 entry point, pass a parameterless procedure or bound method:
+
+```oberon
+ok := ActivityTrees.Run(sieve.Run, 4, used)
+```
+
+Think of the tree as a family. The root is `sieve.Run`. It creates the filter
+for 2, which creates the filter for 3, which creates the filter for 5.
+The root can finish feeding numbers while the last filter still has work.
+The caller waits for the whole family. This is a **join**. Each body can
+finish independently, whereas a barrier would make the participants wait
+for each other before continuing. Explicitly detached services have their
+own lifetimes.
+
+- **`workers`** requests 1–64 pthreads for this call, in addition to the
+  waiting caller. The runtime assigns new bodies round-robin. Each stays on
+  its assigned worker, and macOS schedules those threads on CPU cores.
+- **`used`** reports how many distinct workers actually ran at least one
+  application body, including the root. Even a value of four says nothing
+  about whether four cores were busy at the same instant.
+- **`ok`** is true on normal completion. If a body traps, the runtime
+  initiates cooperative cancellation, unwinds parked siblings, and returns
+  false after the workers stop.
+
+Try the same sieve with four workers using the compiler setting above:
 
 ```sh
 scripts/test-a2-lightweight-activities.sh --do 'DarwinActivityTreeProbe.Run 4 1000'
 ```
 
-The first argument requests workers and the second sets the sieve limit. The
-probe calls the same `ConcurrentSieve.Run` as above. Expect 168 primes and
-`Sieve workers used: 4`. In a native entry point, call
-`ok := ActivityTrees.Run(app.Run, workers, used)` with a parameterless
-procedure or bound method. Applications import `ActivityTrees`. The lightweight Darwin
-build selects `Darwin.ActivityTrees.Mod` and this branch currently provides the
-Apple Silicon implementation. The call joins the root and its ordinary active
-descendants. Each new body is assigned round-robin and stays on its worker.
-The runtime handles cross-worker `{EXCLUSIVE}` and `AWAIT`. Separate native
-services have their own lifetimes. A trapped body cancels parked siblings;
-CPU-bound code still needs to cooperate. Worker handoffs can cost more than
-the work done by a small filter.
-[Runtime](source/Darwin.ActivityTrees.Mod) · [Probe](tests/DarwinActivityTreeProbe.Mod)
+Expect 168 primes and `Sieve workers used: 4`. The filter code is the same
+as in the single-worker example.
+[Runtime](source/ActivityTrees.Mod) · [Probe](tests/DarwinActivityTreeProbe.Mod)
 
 **Use it in a desktop application.** RadioGlobe declares its watcher as
 `StatusWatcher = OBJECT(ServiceActivities.DetachedObject)` and starts it with
@@ -60,6 +84,43 @@ selects the shared worker on the lightweight desktop or an ordinary active
 object on portable A2. To try the watcher, build the `desktop-lightweight`
 target and open **Demos → RadioGlobe**. [Watcher source](source/WMRadioGlobe.Mod)
 · [Desktop build and launch instructions](README-native-desktop.md#experimental-desktop-with-lightweight-activities)
+
+### Building a standalone terminal application
+
+The same project Makefile selects the host [build rules](build/standalone.mk):
+
+```make
+PROGRAM = hello
+MODULES = Hello HelloMain
+
+A2_BRANCH ?= $(HOME)/srcs/oberon-worker-pool
+include $(A2_BRANCH)/build/standalone.mk
+```
+
+List modules in initialization order, with the entry module last. Use
+`make run` to build and launch, or `make module` to compile only.
+For a program importing `ActivityTrees`, set `A2_PROFILE = activities` before
+the include. Set `RUN_ARGS` to pass arguments to the program.
+On macOS, `A2_ROOT` selects the checkout containing the embedded-core loader,
+and `A2_TOOLCHAIN` defaults to its `build/native-toolchain` directory. The
+executable embeds its fiber runtime.
+
+On x86-64 Linux, install make, a C compiler, and glibc development headers
+(glibc 2.30 or newer). Unpack the stock A2 Linux64 distribution and set
+`A2_TOOLCHAIN` to the directory containing `oberon` and `bin/` (default
+`~/Linux64`). The activities profile builds `libA2Activities.so` next to
+the ELF executable. Copy both files together when moving the program.
+
+From either host, run the shared acceptance test:
+
+```sh
+scripts/test-a2-activity-trees.sh
+```
+
+It compares all primes through 1,000 with one and four workers, then checks
+that a trapped body unwinds a parked sibling after garbage collection. The Linux
+backend was exercised under QEMU on Debian 12 x86-64. Other A2 targets still
+need a worker and stack-scanning backend to provide this API.
 
 ### RadioGlobe on macOS
 
