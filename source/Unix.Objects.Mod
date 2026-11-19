@@ -188,6 +188,7 @@ TYPE
 	END DetachedObject;
 	ActivityCondition* = Condition;
 	MonitorCall* = PROCEDURE {DELEGATE}(op: INTEGER; cond: Condition; frame: ADDRESS);
+	SharedStart* = PROCEDURE {DELEGATE}(body: Body; obj: ProtectedObject);
 	ActivityStart* = PROCEDURE {DELEGATE}(body: Body; obj: ProtectedObject): MonitorCall;
 	#END
 
@@ -257,6 +258,7 @@ TYPE
 		stackScanner*: StackScanner;
 		stackLimit*: PROCEDURE {DELEGATE}(sp: ADDRESS): ADDRESS;
 		nextActivity*, childActivity*: ActivityStart;
+		sharedChild*: SharedStart;
 		prepareWait*: PROCEDURE {DELEGATE}(): EventHandler;
 		waitExternal*: PROCEDURE {DELEGATE}(): BOOLEAN;
 		sleepActivity*: PROCEDURE {DELEGATE}(ms: SIGNED32);
@@ -551,6 +553,11 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 				InitProtHeader(hdr); RegisterFinalizer(hdr.lock, FreeDetachedLock);
 				instance(DetachedObject).ScheduleBody(body, obj); RETURN
 			END
+		ELSIF (p # NIL) & (p.sharedChild # NIL) & (p.nextActivity = NIL) & (priority = 0) & (flags = {}) THEN
+			(* Another worker can dispatch immediately after submission. *)
+			SYSTEM.GET(SYSTEM.VAL(ADDRESS,obj) + Heaps.HeapBlockOffset, hdr);
+			InitProtHeader(hdr); RegisterFinalizer(hdr.lock, FreeDetachedLock);
+			p.sharedChild(body, obj); RETURN
 		ELSIF (p # NIL) & ((p.nextActivity # NIL) OR (p.childActivity # NIL)) THEN
 			start := p.nextActivity; p.nextActivity := NIL;
 			IF start = NIL THEN start := p.childActivity END;

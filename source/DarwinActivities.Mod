@@ -9,7 +9,7 @@ TYPE
 	Activity* = OBJECT
 	VAR owner: Scheduler; next: Activity; fiber: ADDRESS; queued: BOOLEAN;
 		externalNext: Activity; deadline: SIGNED64; socketWatch: ADDRESS; posted: BOOLEAN; waitNext: Activity; guard: Objects.ActivityCondition; frame: ADDRESS;
-		children: BOOLEAN; context: ANY; subject: Objects.ActivitySelf;
+		sharedChild*: Objects.SharedStart; children: BOOLEAN; context: ANY; subject: Objects.ActivitySelf;
 
 		PROCEDURE Run*;
 		BEGIN HALT(101) END Run;
@@ -280,11 +280,11 @@ TYPE
 			head := a.next; IF head = NIL THEN tail := NIL END;
 			a.next := NIL; a.queued := FALSE; running := a;
 			hostContext := Objects.CurrentContext(); Objects.SetContext(a.context); worker.activitySelf := a.subject;
-			IF a.children THEN worker.childActivity := Adopt END;
+			IF a.children THEN worker.childActivity := Adopt END; worker.sharedChild := a.sharedChild;
 			worker.checkpointBudget := CheckpointInterval; worker.checkpointDue := BudgetExpired;
 			worker.prepareWait := PrepareWait; worker.waitExternal := WaitExternal; worker.awaitSocket := WaitSocket; worker.sleepActivity := Sleep;
 			done := resume(a.fiber) # 0; worker.prepareWait := NIL; worker.waitExternal := NIL; worker.awaitSocket := NIL; worker.sleepActivity := NIL;
-			worker.checkpointDue := NIL; worker.childActivity := NIL;
+			worker.checkpointDue := NIL; worker.childActivity := NIL; worker.sharedChild := NIL;
 			worker.activitySelf := NIL; a.context := Objects.CurrentContext(); Objects.SetContext(hostContext);
 			IF done THEN
 				ASSERT(~a.queued);

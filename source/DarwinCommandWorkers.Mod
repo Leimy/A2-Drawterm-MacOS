@@ -47,7 +47,7 @@ TYPE
 		END Assign;
 
 		PROCEDURE Put(j: Job);
-		VAR id: SIZE; w: Worker; p: Objects.Process; children, one: Objects.ActivityStart;
+		VAR id: SIZE; w: Worker; p: Objects.Process; children, one: Objects.ActivityStart; shared: Objects.SharedStart;
 		BEGIN {EXCLUSIVE}
 			IF last = NIL THEN first := j ELSE last.nextJob := j END; last := j;
 			j := Eligible(); IF j = NIL THEN RETURN END;
@@ -58,8 +58,8 @@ TYPE
 					slots[id].used := TRUE; Assign(id, j);
 					(* Async submissions can arrive from inside a lightweight tree. *)
 					p := Objects.CurrentProcess(); children := p.childActivity; one := p.nextActivity;
-					p.childActivity := NIL; p.nextActivity := NIL; NEW(w, id, SELF);
-					p.childActivity := children; p.nextActivity := one
+					shared := p.sharedChild; p.sharedChild := NIL; p.childActivity := NIL; p.nextActivity := NIL; NEW(w, id, SELF);
+					p.sharedChild := shared; p.childActivity := children; p.nextActivity := one
 				END
 			END
 		END Put;

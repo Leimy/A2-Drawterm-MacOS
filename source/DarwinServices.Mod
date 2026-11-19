@@ -37,7 +37,7 @@ TYPE
 		PROCEDURE Attach(entry: HostEntry);
 		BEGIN {EXCLUSIVE} entry.process := Objects.CurrentProcess() END Attach;
 		PROCEDURE Put(service: Service);
-		VAR host: Host; entry: HostEntry; p: Objects.Process; children, one: Objects.ActivityStart;
+		VAR host: Host; entry: HostEntry; p: Objects.Process; children, one: Objects.ActivityStart; shared: Objects.SharedStart;
 		BEGIN {EXCLUSIVE}
 			IF last = NIL THEN first := service ELSE last.queuedNext := service END;
 			last := service; INC(live);
@@ -45,8 +45,8 @@ TYPE
 				Reap; NEW(entry); entry.next := hosts; hosts := entry;
 				running := TRUE; p := Objects.CurrentProcess();
 				children := p.childActivity; one := p.nextActivity;
-				p.childActivity := NIL; p.nextActivity := NIL; NEW(host, entry);
-				p.childActivity := children; p.nextActivity := one
+				shared := p.sharedChild; p.sharedChild := NIL; p.childActivity := NIL; p.nextActivity := NIL; NEW(host, entry);
+				p.sharedChild := shared; p.childActivity := children; p.nextActivity := one
 			END
 		END Put;
 		PROCEDURE Take(): Service;

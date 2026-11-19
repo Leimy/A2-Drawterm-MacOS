@@ -52,7 +52,7 @@ run() {
 run compile -p=DarwinA2 --traceModule=Trace --define=UNIX,AARCH64,DESKTOP,LIGHTWEIGHT Darwin.Unix.Mod
 run execute core.txt
 grep -q 'Link successful' run.log
-run compile -p=DarwinA2 CSP.Mod CSPChannels.Mod CSPDemo.Mod ConcurrentSieve.Mod DarwinActivities.Mod DarwinServices.Mod DarwinCommandWorkers.Mod DarwinActivitiesProbe.Mod
+run compile -p=DarwinA2 CSP.Mod CSPChannels.Mod CSPDemo.Mod ConcurrentSieve.Mod DarwinActivities.Mod DarwinActivityTrees.Mod DarwinActivityTreeProbe.Mod DarwinServices.Mod DarwinCommandWorkers.Mod DarwinActivitiesProbe.Mod
 if ! "$command_mode"; then
     # Keep the ordinary network objects and symbols separate from the fiber build.
     (
@@ -80,6 +80,16 @@ if "$command_mode"; then
     ./OberonLoader do "$2"
     exit $?
 fi
+for workers in 1 4; do
+    run do "DarwinActivityTreeProbe.Run $workers 1000"
+    grep -F "Sieve workers used: $workers" run.log
+    grep -F '1000: 168 primes' run.log
+    grep '^2 3 5 ' run.log > "primes.$workers"
+done
+cmp primes.1 primes.4
+# This probe deliberately traps one body and must join both workers.
+with_deadline 20 ./OberonLoader do 'DarwinActivityTreeProbe.Cancel' > cancel.log 2>&1
+grep -F 'PASS cross-worker cancellation' cancel.log
 run do DarwinActivitiesProbe.Timers
 grep -F "PASS positive sleeps park" run.log
 run do DarwinActivitiesProbe.ServiceLifecycle

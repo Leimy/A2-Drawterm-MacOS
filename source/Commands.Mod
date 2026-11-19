@@ -204,7 +204,7 @@ PROCEDURE Activate*(CONST cmd : ARRAY OF CHAR; context : Context; flags : SET; V
 VAR moduleName, commandName : Modules.Name; run : Runner;
 #IF LIGHTWEIGHT THEN
 VAR routerModule: Modules.Module;
-	p: Objects.Process; children: Objects.ActivityStart;
+	p: Objects.Process; children: Objects.ActivityStart; shared: Objects.SharedStart;
 #END
 BEGIN
 
@@ -217,11 +217,11 @@ BEGIN
 			IF workerRoute(cmd, context, flags, res, msg) THEN RETURN END
 		END;
 		(* A command runner has its own native join monitor and trap handler. *)
-		p := Objects.CurrentProcess(); children := p.childActivity; p.childActivity := NIL;
+		p := Objects.CurrentProcess(); children := p.childActivity; shared := p.sharedChild; p.sharedChild := NIL; p.childActivity := NIL;
 		#END
 		NEW(run, moduleName, commandName, context);
 		#IF LIGHTWEIGHT THEN
-		p.childActivity := children;
+		p.sharedChild := shared; p.childActivity := children;
 		#END
 		run.Join(Loaded, res, msg); (* Avoid race condition described in Modules.Mod *)
 		IF (res = Ok) & (Wait IN flags) THEN run.Join(Finished, res, msg); END

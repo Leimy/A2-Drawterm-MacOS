@@ -31,6 +31,25 @@ desktop. The sieve creates an ordinary active filter for each prime using
 `NEW`. All 168 filters run on one worker and finish before the command returns.
 [Sieve source](source/ConcurrentSieve.Mod)
 
+**Try one tree on four pthreads (experimental).** In the same checkout and
+with the same compiler setting, run:
+
+```sh
+scripts/test-a2-lightweight-activities.sh --do 'DarwinActivityTreeProbe.Run 4 1000'
+```
+
+The first argument requests workers and the second sets the sieve limit. The
+probe calls the same `ConcurrentSieve.Run` as above. Expect 168 primes and
+`Sieve workers used: 4`. In a native entry point, call
+`ok := DarwinActivityTrees.Run(app.Run, workers, used)` with a parameterless
+procedure or bound method. The call joins the root and its ordinary active
+descendants. Each new body is assigned round-robin and stays on its worker.
+The runtime handles cross-worker `{EXCLUSIVE}` and `AWAIT`. Separate native
+services have their own lifetimes. A trapped body cancels parked siblings;
+CPU-bound code still needs to cooperate. Worker handoffs can cost more than
+the work done by a small filter.
+[Runtime](source/DarwinActivityTrees.Mod) · [Probe](tests/DarwinActivityTreeProbe.Mod)
+
 **Use it in a desktop application.** RadioGlobe declares its watcher as
 `StatusWatcher = OBJECT(ServiceActivities.DetachedObject)` and starts it with
 `NEW(watcher, orbit)`. Its ordinary `BEGIN {ACTIVE}` body survives the return
