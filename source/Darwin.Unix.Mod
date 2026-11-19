@@ -491,6 +491,7 @@ TYPE
 
 VAR
 	mainthread: Thread_t;
+	launchMask: Sigset;
 	handler_done: BOOLEAN;
 
 	argc-: SIGNED32;  argv-: ADDRESS;  environ-: ADDRESS;
@@ -552,6 +553,7 @@ VAR
 	sigfillset		: PROCEDURE {C} (set: ADDRESS): SIGNED32;
 	sigsuspend	: PROCEDURE {C} (set: ADDRESS): SIGNED32;
 	sigaddset		: PROCEDURE {C} (set: ADDRESS; signo: SIGNED32);
+	sigismember: PROCEDURE {C} (set: ADDRESS; signo: SIGNED32): SIGNED32;
 	sigdelset		: PROCEDURE {C} (set: ADDRESS; signo: SIGNED32);
 	nanosleep		: PROCEDURE {C} (req, rem: ADDRESS): SIGNED32;
 	sigaltstack	: PROCEDURE {C} (ss, oss: ADDRESS): SIGNED32;
@@ -838,6 +840,8 @@ VAR
 		sigdelset( ADDRESSOF( new ), SIGBUS );
 		sigdelset( ADDRESSOF( new ), SIGSEGV );
 		sigdelset( ADDRESSOF( new ), SIGTERM );
+		(* Honor the launcher's interrupt policy on worker and saved fiber stacks. *)
+		IF sigismember(ADDRESSOF(launchMask), SIGINT) = 0 THEN sigdelset(ADDRESSOF(new), SIGINT) END;
 		sigdelset( ADDRESSOF( new ), SIGUSR1 );
 		res := pthread_sigmask( SIG_SETMASK, ADDRESSOF( new ), ADDRESSOF( old ) );
 
@@ -941,6 +945,7 @@ VAR
 		param: Sched_param;
 	BEGIN
 		mainthread := pthread_self();
+		ASSERT(pthread_sigmask(SIG_SETMASK, NIL, ADDRESSOF(launchMask)) = 0);
 		high := sched_get_priority_max(SCHED_OTHER);
 		low := sched_get_priority_min(SCHED_OTHER);
 
@@ -1246,6 +1251,7 @@ VAR
 		Dlsym( libc, "sigemptyset",	ADDRESSOF(sigemptyset) );
 		Dlsym( libc, "sigfillset",		ADDRESSOF(sigfillset) );
 		Dlsym( libc, "sigaddset",		ADDRESSOF(sigaddset) );
+		Dlsym( libc, "sigismember", ADDRESSOF(sigismember) );
 		Dlsym( libc, "sigdelset",		ADDRESSOF(sigdelset) );
 		Dlsym( libc, "nanosleep",		ADDRESSOF(nanosleep) );
 		Dlsym( libc, "sigaltstack",	ADDRESSOF(sigaltstack) );

@@ -8,6 +8,7 @@ ext := GofAa
 sym := SymAa
 ifeq ($(A2_PROFILE),activities)
 compat_module := DarwinActivities
+unix_source := Darwin.Unix.Mod
 compat_source := DarwinActivities.Mod
 fiber_source := $(repo)/UnixAos/boot/DarwinActivities.c
 fiber_flags := -DA2_EMBEDDED_ACTIVITIES -Wno-deprecated-declarations -Wl,-exported_symbol,_activity_*

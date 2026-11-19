@@ -22,3 +22,23 @@ done
 cmp primes.1 primes.4
 ./tree-test cancel > cancel.log 2>&1
 grep -F 'PASS cross-worker cancellation' cancel.log
+
+if [ "$(uname -s)" = Darwin ]; then
+    /usr/bin/expect <<'EXPECT'
+set timeout 5
+spawn -noecho ./tree-test interrupt
+expect {
+    "waiting for interrupt" {}
+    timeout {exit 1}
+    eof {exit 1}
+}
+send -- "\003"
+expect {
+    eof {}
+    timeout {exec kill -KILL [exp_pid]; wait; exit 1}
+}
+set status [wait]
+if {[lrange $status 4 5] ne {CHILDKILLED SIGINT}} {error "unexpected child status $status"}
+puts "PASS foreground Ctrl+C terminated the activity tree"
+EXPECT
+fi

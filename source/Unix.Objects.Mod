@@ -73,7 +73,7 @@ TYPE
 	LockT= POINTER TO RECORD
 		mtx, enter: ADDRESS;
 		#IF LIGHTWEIGHT THEN
-		monitor: MonitorCall; external: ExternalGuard;
+		monitor: MonitorCall; external, spareGuard: ExternalGuard;
 		#END
 	END;
 
@@ -629,7 +629,10 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 	PROCEDURE AwaitExternal(p: Process; obj: ProtectedObject; lock: LockT; cond: Condition; frame: ADDRESS);
 	VAR n, prev: ExternalGuard; cancelled: BOOLEAN;
 	BEGIN
-		NEW(n); n.cond := cond; n.frame := frame;
+		(* The native monitor protects one reusable guard for recurring AWAITs. *)
+		n := lock.spareGuard;
+		IF n = NIL THEN NEW(n) ELSE lock.spareGuard := NIL END;
+		n.cond := cond; n.frame := frame;
 		LOOP
 			n.signal := p.prepareWait(); n.notified := FALSE; n.next := lock.external; lock.external := n;
 			Unlock(obj, TRUE);
@@ -637,8 +640,11 @@ TYPE	GCStatusExt = OBJECT (Heaps.GCStatus)
 			Lock(obj, TRUE);
 			IF lock.external = n THEN lock.external := n.next
 			ELSE prev := lock.external; WHILE prev.next # n DO prev := prev.next END; prev.next := n.next END;
-			IF cancelled THEN HALT(ActivityTreeCancelled) END;
-			IF cond(frame) THEN RETURN END
+			IF cancelled OR cond(frame) THEN EXIT END
+		END;
+		n.next := NIL; n.cond := NIL; n.frame := 0; n.signal := NIL;
+		lock.spareGuard := n;
+		IF cancelled THEN HALT(ActivityTreeCancelled)
 		END
 	END AwaitExternal;
 	#END

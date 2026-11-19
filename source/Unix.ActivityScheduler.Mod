@@ -8,7 +8,7 @@ CONST CheckpointInterval* = 256; (* work checkpoints per turn *)
 TYPE
 	Activity* = OBJECT
 	VAR owner: Scheduler; next: Activity; fiber: ADDRESS; queued: BOOLEAN;
-		externalNext: Activity; deadline: SIGNED64; socketWatch: ADDRESS; posted: BOOLEAN; waitNext: Activity; guard: Objects.ActivityCondition; frame: ADDRESS;
+		externalNext, monitorPrev, monitorNext, postNext: Activity; deadline: SIGNED64; socketWatch: ADDRESS; acceptPost: BOOLEAN; waitNext: Activity; guard: Objects.ActivityCondition; frame: ADDRESS;
 		sharedChild*: Objects.SharedStart; children: BOOLEAN; context: ANY; subject: Objects.ActivitySelf;
 
 		PROCEDURE Run*;
@@ -27,7 +27,13 @@ TYPE
 		   ready queue; the producer latches a notification under a native mutex. *)
 		PROCEDURE Post;
 		BEGIN
-			Unix.MtxLock(owner.inboxLock); posted := TRUE; Unix.CondSignal(owner.changed); Unix.MtxUnlock(owner.inboxLock)
+			Unix.MtxLock(owner.inboxLock);
+			IF acceptPost THEN
+				acceptPost := FALSE;
+				IF owner.lastPost = NIL THEN owner.firstPost := SELF ELSE owner.lastPost.postNext := SELF END;
+				owner.lastPost := SELF; Unix.CondSignal(owner.changed)
+			END;
+			Unix.MtxUnlock(owner.inboxLock)
 		END Post;
 
 		PROCEDURE Park*;
@@ -115,7 +121,7 @@ TYPE
 	END Monitor;
 
 	Scheduler* = OBJECT
-	VAR worker: Objects.Process; pool: ADDRESS; inboxLock, changed: ADDRESS; external: Activity; head, tail, running: Activity; live-, adopted-: SIZE; bindings, guarded: Monitor; failed-: BOOLEAN;
+	VAR worker: Objects.Process; pool: ADDRESS; inboxLock, changed: ADDRESS; external, monitors, firstPost, lastPost: Activity; head, tail, running: Activity; live-, adopted-: SIZE; bindings, guarded: Monitor; failed-: BOOLEAN;
 
 		PROCEDURE &Init*;
 		BEGIN
@@ -190,7 +196,7 @@ TYPE
 			worker.checkpointBudget := CheckpointInterval;
 			(* A timer or notification can become ready while this fiber is
 			   the only runnable one. Check before granting it another turn. *)
-			IF (head = NIL) & (external # NIL) THEN PollExternal(FALSE) END;
+			IF (head = NIL) & ((external # NIL) OR (monitors # NIL)) THEN PollExternal(FALSE) END;
 			IF head # NIL THEN running.Yield END
 		END BudgetExpired;
 
@@ -201,14 +207,19 @@ TYPE
 
 		PROCEDURE PrepareWait(): Objects.EventHandler;
 		BEGIN
-			InitInbox; running.posted := FALSE; RETURN running.Post
+			InitInbox; running.acceptPost := TRUE; RETURN running.Post
 		END PrepareWait;
 
 		PROCEDURE WaitExternal(): BOOLEAN;
 		BEGIN
-			IF ~failed THEN
-				running.externalNext := external; external := running; running.Park
+			IF (running.deadline # 0) OR (running.socketWatch # 0) THEN
+				running.externalNext := external; external := running
+			ELSE
+				running.monitorNext := monitors;
+				IF monitors # NIL THEN monitors.monitorPrev := running END;
+				monitors := running
 			END;
+			running.Park;
 			RETURN failed
 		END WaitExternal;
 
@@ -216,7 +227,7 @@ TYPE
 		VAR a: Activity; cancelled: BOOLEAN; direction: SIGNED32;
 		BEGIN
 			IF writing THEN direction := 1 ELSE direction := 0 END;
-			a := running; InitInbox; a.posted := FALSE;
+			a := running; InitInbox;
 			a.socketWatch := watchSocket(fd, direction, inboxLock, changed); IF a.socketWatch = 0 THEN RETURN FALSE END;
 			cancelled := WaitExternal(); unwatchSocket(a.socketWatch); a.socketWatch := 0;
 			IF cancelled THEN HALT(Objects.ActivityTreeCancelled) END;
@@ -228,24 +239,38 @@ TYPE
 			IF failed THEN HALT(Objects.ActivityTreeCancelled) END;
 			IF ms <= 0 THEN running.Yield
 			ELSE
-				InitInbox; running.posted := FALSE;
+				InitInbox;
 				running.deadline := now() + SIGNED64(ms) * 1000000;
 				IGNORE WaitExternal(); running.deadline := 0
 			END;
 			IF failed THEN HALT(Objects.ActivityTreeCancelled) END
 		END Sleep;
 
+		(* Native monitor notifications identify the exact parked fiber. The owner
+		   removes it in constant time. Keep the list for tree cancellation. *)
+		PROCEDURE WakeMonitor(a: Activity);
+		BEGIN
+			IF a.monitorPrev = NIL THEN monitors := a.monitorNext ELSE a.monitorPrev.monitorNext := a.monitorNext END;
+			IF a.monitorNext # NIL THEN a.monitorNext.monitorPrev := a.monitorPrev END;
+			a.monitorPrev := NIL; a.monitorNext := NIL; a.acceptPost := FALSE; a.Wake
+		END WakeMonitor;
+
 		PROCEDURE PollExternal(wait: BOOLEAN);
 		VAR a, next, prev: Activity; earliest, sample: SIGNED64;
 		BEGIN
-			IF external = NIL THEN RETURN END;
+			IF (external = NIL) & (monitors = NIL) THEN RETURN END;
 			Unix.MtxLock(inboxLock);
 			LOOP
+				WHILE firstPost # NIL DO
+					a := firstPost; firstPost := a.postNext; a.postNext := NIL; WakeMonitor(a)
+				END;
+				lastPost := NIL;
+				IF failed THEN WHILE monitors # NIL DO WakeMonitor(monitors) END END;
 				earliest := 0; sample := 0; prev := NIL; a := external;
 				WHILE a # NIL DO
 					next := a.externalNext;
 					IF (a.deadline # 0) & (sample = 0) THEN sample := now() END;
-					IF a.posted OR failed OR ((a.deadline # 0) & (a.deadline <= sample)) OR ((a.socketWatch # 0) & (socketReady(a.socketWatch) # 0)) THEN
+					IF failed OR ((a.deadline # 0) & (a.deadline <= sample)) OR ((a.socketWatch # 0) & (socketReady(a.socketWatch) # 0)) THEN
 						IF prev = NIL THEN external := next ELSE prev.externalNext := next END;
 						a.externalNext := NIL; a.Wake
 					ELSE
@@ -266,7 +291,7 @@ TYPE
 		BEGIN
 			LOOP
 				IF ~Dispatch() THEN
-					IF external = NIL THEN RETURN END; PollExternal(TRUE)
+					IF (external = NIL) & (monitors = NIL) THEN RETURN END; PollExternal(TRUE)
 				END
 			END
 		END Drain;
@@ -275,7 +300,7 @@ TYPE
 		VAR a: Activity; hostContext: ANY; done: BOOLEAN;
 		BEGIN
 			ASSERT((worker = Objects.CurrentProcess()) & (running = NIL));
-			IF external # NIL THEN PollExternal(FALSE) END;
+			IF (external # NIL) OR (monitors # NIL) THEN PollExternal(FALSE) END;
 			a := head; IF a = NIL THEN RETURN FALSE END;
 			head := a.next; IF head = NIL THEN tail := NIL END;
 			a.next := NIL; a.queued := FALSE; running := a;
@@ -297,7 +322,7 @@ TYPE
 		PROCEDURE Close*;
 		BEGIN
 			ASSERT((worker = Objects.CurrentProcess()) & (live = 0) & (pool # 0) & (worker.nextActivity = NIL));
-			ASSERT((guarded = NIL) & (external = NIL));
+			ASSERT((guarded = NIL) & (external = NIL) & (monitors = NIL) & (firstPost = NIL));
 			IF inboxLock # 0 THEN
 				Unix.CondDestroy(changed); Unix.free(changed); Unix.MtxDestroy(inboxLock); Unix.free(inboxLock)
 			END;
