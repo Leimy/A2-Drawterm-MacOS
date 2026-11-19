@@ -93,7 +93,7 @@ The same project Makefile selects the host [build rules](build/standalone.mk):
 PROGRAM = hello
 MODULES = Hello HelloMain
 
-A2_BRANCH ?= $(HOME)/srcs/oberon-worker-pool
+A2_BRANCH ?= $(HOME)/srcs/oberon
 include $(A2_BRANCH)/build/standalone.mk
 ```
 
@@ -101,9 +101,9 @@ List modules in initialization order, with the entry module last. Use
 `make run` to build and launch, or `make module` to compile only.
 For a program importing `ActivityTrees`, set `A2_PROFILE = activities` before
 the include. Set `RUN_ARGS` to pass arguments to the program.
-On macOS, `A2_ROOT` selects the checkout containing the embedded-core loader,
-and `A2_TOOLCHAIN` defaults to its `build/native-toolchain` directory. The
-executable embeds its fiber runtime.
+On macOS, the build compiles the embedded-core loader from the same checkout
+as the make rules. `A2_TOOLCHAIN` defaults to `$(A2_ROOT)/build/native-toolchain`.
+The activities profile embeds its fiber runtime in the executable.
 
 On x86-64 Linux, install make, a C compiler, and glibc development headers
 (glibc 2.30 or newer). Unpack the stock A2 Linux64 distribution and set

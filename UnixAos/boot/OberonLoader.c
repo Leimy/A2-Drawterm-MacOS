@@ -30,6 +30,11 @@
 #include <libkern/OSCacheControl.h>
 #endif
 
+#ifdef A2_EMBEDDED_CORE
+#include <mach-o/getsect.h>
+#include <mach-o/ldsyms.h>
+#endif
+
 #define Offset 16*1024	/* startpos of the appended oberon binary */
 #define BlkSize 4*1024
 
@@ -38,7 +43,7 @@ typedef void *addr;
 typedef unsigned int uint;
 typedef unsigned long ulong;
 
-typedef struct {  /* cf. Unix.*.Glue.Mod */
+typedef struct CoreHeader {  /* cf. Unix.*.Glue.Mod */
     /* Oberon --> loader: */
     char id[16];		/* must match coreID; followed by a zero version word */
     int  version;
@@ -67,6 +72,11 @@ uint heapsize;
 int fd;
 
 static void *oberon_dlopen(const char *path, int mode) {
+#ifdef A2_EMBEDDED_ACTIVITIES
+   /* The standalone executable exports the same activity_* functions. */
+   if (path && strcmp(path, "@executable_path/libA2Activities.dylib") == 0)
+      return dlopen(NULL, mode);
+#endif
 #if defined(__linux__) && defined(__aarch64__)
    const char *name = strrchr(path, '/');
    name = name != NULL ? name + 1 : path;
@@ -125,26 +135,46 @@ void cout( char c ) {
    write( 1, &buf, 1 );
 }
 
-uint ReadInteger( ) {
-   union {
-      char buf[4];
-      uint i;
-   } u;
-   read( fd, &u.buf, 4 );
-   return (u.i);
+/* The signed single-file build gets its payload from a Mach-O section.
+   Both launch modes use the same relocation and runtime startup code. */
+#ifdef A2_EMBEDDED_CORE
+static const unsigned char *coreBytes;
+static size_t coreLength;
+#endif
+
+static void read_core(void *out, size_t count, off_t offset) {
+#ifdef A2_EMBEDDED_CORE
+   if (offset < 0 || (size_t)offset > coreLength || count > coreLength - (size_t)offset) {
+      fprintf(stderr, "truncated embedded Oberon core\n"); exit(2);
+   }
+   memcpy(out, coreBytes + offset, count);
+#else
+   if (pread(fd, out, count, offset) != (ssize_t)count) {
+      fprintf(stderr, "incomplete read of Oberon core\n"); exit(2);
+   }
+#endif
 }
 
-
-void Relocate( uint relocations ) {
-   addr *a;
-   uint i;
-
-   for (i=0; i<relocations; i++) {
-      a = heap + ReadInteger();
-      *a += (ulong)heap;
+static void Relocate(uint relocations, off_t table, uint size) {
+   uint offsets[1024];
+   while (relocations) {
+      uint count = relocations < 1024 ? relocations : 1024;
+      read_core(offsets, count * sizeof(uint), table);
+      for (uint i = 0; i < count; ++i) {
+         if (offsets[i] > size - sizeof(addr)) {
+            fprintf(stderr, "invalid Oberon relocation\n"); exit(2);
+         }
+         /* The linker can emit unaligned pointer slots. */
+         ulong value;
+         char *slot = (char *)heap + offsets[i];
+         memcpy(&value, slot, sizeof(value));
+         value += (ulong)heap;
+         memcpy(slot, &value, sizeof(value));
+      }
+      table += count * sizeof(uint);
+      relocations -= count;
    }
 }
-
 
 char *which_path(const char *name) {
 
@@ -170,58 +200,55 @@ char *which_path(const char *name) {
 
 
 int main( int argc, char *argv[], char *env[] ) {
-   int n, binsize, relocations;
-   off_t coreOffset;
-   struct stat sb;
+   off_t coreOffset = 0, available;
    Header header;
-   char *path, *buf, *corePath;
-
-   corePath = getenv("OBERON_CORE");
-   if ((corePath != NULL) && (corePath[0] != 0)) {
+#ifdef A2_EMBEDDED_CORE
+   coreBytes = getsectiondata(&_mh_execute_header, "__TEXT", "__a2core", &coreLength);
+   if (!coreBytes) { fprintf(stderr, "missing __a2core section\n"); return 2; }
+   available = coreLength;
+#else
+   const char *corePath = getenv("OBERON_CORE");
+   if (corePath && *corePath) {
       fd = open(corePath, O_RDONLY);
-      coreOffset = 0;
    } else {
-      fd = open( *argv, O_RDONLY );
+      fd = open(*argv, O_RDONLY);
       coreOffset = Offset;
       if (fd < 0) {
-         /* find myself in PATH */
-         path = which_path(*argv);
-         fd = open(path, O_RDONLY);
+         char *path = which_path(*argv);
+         if (path) { fd = open(path, O_RDONLY); free(path); }
       }
    }
-   if (fd < 0) { perror("open Oberon core"); exit(2); }
-   fstat( fd, &sb );
-   if ( sb.st_size < coreOffset+2048 ) {
-      fprintf( stderr, "%s: missing Oberon binary\n", corePath != NULL ? corePath : *argv );
-      exit( 2 );
+   if (fd < 0) { perror("open Oberon core"); return 2; }
+   struct stat sb;
+   if (fstat(fd, &sb) < 0) { perror("stat Oberon core"); return 2; }
+   available = sb.st_size - coreOffset;
+#endif
+   /* Inspect the header before allocating or applying relocations. */
+   struct CoreHeader info;
+   read_core(&info, sizeof(info), coreOffset);
+   if (memcmp(info.id, coreID, sizeof(info.id)) != 0 ||
+       info.codesize < (int)sizeof(info) || info.relocations < 0 ||
+       available < info.codesize ||
+       (available - info.codesize) / (off_t)sizeof(uint) < info.relocations) {
+      fprintf(stderr, "invalid Oberon core header\n"); return 2;
    }
-   lseek( fd, coreOffset, SEEK_SET );
-   buf = malloc( 512 );
-   n = read( fd, buf, 256 );
-   header = (Header)buf;
-   if (strcmp(header->id, coreID) != 0) {
-      fprintf( stderr, "wrong Oberon headerId: got '%s', expected '%s'\n", header->id, coreID );
-      exit( 2 );
-   }
-   binsize = header->codesize;
-   relocations = header->relocations;
-   free( buf );
-
+   int binsize = info.codesize;
    heapsize = BlkSize;
    while (heapsize < (uint)binsize) heapsize += BlkSize;
 
-   lseek( fd, coreOffset, SEEK_SET );
 #if defined(__APPLE__) && defined(__aarch64__)
-   heap = mmap(NULL, heapsize, PROT_READ|PROT_WRITE,
-               MAP_PRIVATE|MAP_ANON, -1, 0);
-   if (heap == MAP_FAILED) { perror("mmap Oberon core"); exit(2); }
+   heap = mmap(NULL, heapsize, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON, -1, 0);
+   if (heap == MAP_FAILED) { perror("mmap Oberon core"); return 2; }
 #else
-   posix_memalign( &heap, BlkSize, heapsize );
+   if (posix_memalign(&heap, BlkSize, heapsize) != 0) {
+      fprintf(stderr, "could not allocate Oberon core\n"); return 2;
+   }
 #endif
-   n = read( fd, heap, binsize );
-   if (n != binsize) { perror("read Oberon core"); exit(2); }
-
-   Relocate( relocations );
+   read_core(heap, binsize, coreOffset);
+   Relocate(info.relocations, coreOffset + binsize, binsize);
+#ifndef A2_EMBEDDED_CORE
+   close(fd);
+#endif
 
    header = (Header)heap;
    *(header->dlopenaddr) = oberon_dlopen;

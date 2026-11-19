@@ -18,5 +18,5 @@ $(PROGRAM): module
 	@cd "$(out)" && rm -f "Program.core" && \
 	    "$(loader)" link --splitCodeData --fileFormat=UnixRaw --fileName="Program.core" \
 	        --extension=.$(ext) $(runtime) $(app_modules) && test -s "Program.core"
-	@$(CC) -arch arm64 -O2 -DA2_EMBEDDED_CORE $(fiber_flags) "$(A2_ROOT)/UnixAos/boot/OberonLoader.c" $(fiber_source) \
+	@$(CC) -arch arm64 -O2 -DA2_EMBEDDED_CORE $(fiber_flags) "$(repo)/UnixAos/boot/OberonLoader.c" $(fiber_source) \
 	    "-Wl,-sectcreate,__TEXT,__a2core,$(out)/Program.core" -o "$@"
