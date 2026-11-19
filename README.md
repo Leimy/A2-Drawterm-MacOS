@@ -41,14 +41,16 @@ scripts/test-a2-lightweight-activities.sh --do 'DarwinActivityTreeProbe.Run 4 10
 The first argument requests workers and the second sets the sieve limit. The
 probe calls the same `ConcurrentSieve.Run` as above. Expect 168 primes and
 `Sieve workers used: 4`. In a native entry point, call
-`ok := DarwinActivityTrees.Run(app.Run, workers, used)` with a parameterless
-procedure or bound method. The call joins the root and its ordinary active
+`ok := ActivityTrees.Run(app.Run, workers, used)` with a parameterless
+procedure or bound method. Applications import `ActivityTrees`. The lightweight Darwin
+build selects `Darwin.ActivityTrees.Mod` and this branch currently provides the
+Apple Silicon implementation. The call joins the root and its ordinary active
 descendants. Each new body is assigned round-robin and stays on its worker.
 The runtime handles cross-worker `{EXCLUSIVE}` and `AWAIT`. Separate native
 services have their own lifetimes. A trapped body cancels parked siblings;
 CPU-bound code still needs to cooperate. Worker handoffs can cost more than
 the work done by a small filter.
-[Runtime](source/DarwinActivityTrees.Mod) · [Probe](tests/DarwinActivityTreeProbe.Mod)
+[Runtime](source/Darwin.ActivityTrees.Mod) · [Probe](tests/DarwinActivityTreeProbe.Mod)
 
 **Use it in a desktop application.** RadioGlobe declares its watcher as
 `StatusWatcher = OBJECT(ServiceActivities.DetachedObject)` and starts it with

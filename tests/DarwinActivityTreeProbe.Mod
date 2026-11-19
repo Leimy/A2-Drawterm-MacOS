@@ -1,5 +1,5 @@
 MODULE DarwinActivityTreeProbe;
-IMPORT Commands, Kernel, ConcurrentSieve, Trees := DarwinActivityTrees;
+IMPORT Commands, Kernel, ConcurrentSieve, ActivityTrees;
 TYPE
 	Sieve = OBJECT
 	VAR context: Commands.Context;
@@ -30,7 +30,7 @@ TYPE
 PROCEDURE Cancel*(context: Commands.Context);
 VAR c: Crash; used: SIZE;
 BEGIN
-	NEW(c); NEW(c.gate); ASSERT(~Trees.Run(c.Run, 2, used));
+	NEW(c); NEW(c.gate); ASSERT(~ActivityTrees.Run(c.Run, 2, used));
 	ASSERT(c.gate.cleaned & (used = 2));
 	context.out.String("PASS cross-worker cancellation"); context.out.Ln
 END Cancel;
@@ -39,7 +39,7 @@ PROCEDURE Run*(context: Commands.Context);
 VAR n: SIGNED32; used: SIZE; sieve: Sieve;
 BEGIN
 	context.arg.Int(n, FALSE); NEW(sieve); sieve.context := context;
-	ASSERT(Trees.Run(sieve.Run, n, used));
+	ASSERT(ActivityTrees.Run(sieve.Run, n, used));
 	context.out.String("Sieve workers used: "); context.out.Int(used,0); context.out.Ln;
 END Run;
 END DarwinActivityTreeProbe.

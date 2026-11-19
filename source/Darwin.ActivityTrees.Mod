@@ -1,4 +1,4 @@
-MODULE DarwinActivityTrees;
+MODULE ActivityTrees;
 (** Run an ordinary active-object tree on a fixed number of pinned workers. *)
 IMPORT A := DarwinActivities, Objects, Unix;
 
@@ -98,4 +98,4 @@ BEGIN
 	RETURN ~tree.failed
 END Run;
 
-END DarwinActivityTrees.
+END ActivityTrees.

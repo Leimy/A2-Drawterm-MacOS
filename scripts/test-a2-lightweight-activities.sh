@@ -52,7 +52,7 @@ run() {
 run compile -p=DarwinA2 --traceModule=Trace --define=UNIX,AARCH64,DESKTOP,LIGHTWEIGHT Darwin.Unix.Mod
 run execute core.txt
 grep -q 'Link successful' run.log
-run compile -p=DarwinA2 CSP.Mod CSPChannels.Mod CSPDemo.Mod ConcurrentSieve.Mod DarwinActivities.Mod DarwinActivityTrees.Mod DarwinActivityTreeProbe.Mod DarwinServices.Mod DarwinCommandWorkers.Mod DarwinActivitiesProbe.Mod
+run compile -p=DarwinA2 CSP.Mod CSPChannels.Mod CSPDemo.Mod ConcurrentSieve.Mod DarwinActivities.Mod Darwin.ActivityTrees.Mod DarwinActivityTreeProbe.Mod DarwinServices.Mod DarwinCommandWorkers.Mod DarwinActivitiesProbe.Mod
 if ! "$command_mode"; then
     # Keep the ordinary network objects and symbols separate from the fiber build.
     (
