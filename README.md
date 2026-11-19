@@ -5,7 +5,7 @@ An experimental native Apple Silicon desktop port is documented in
 substantial assistance from OpenAI Codex under the direction and testing of an
 Active Oberon enthusiast; it is an independent preview, not an ETH release.
 
-[Download the Apple Silicon readiness preview](https://github.com/Leimy/A2-Drawterm-MacOS/releases/tag/preview-2026-11-13-readiness),
+[Download the Apple Silicon preview](https://github.com/Leimy/A2-Drawterm-MacOS/releases/tag/preview-2026-11-19),
 including drawterm and the native compiler toolchain.
 
 ### Lightweight active objects on Apple Silicon

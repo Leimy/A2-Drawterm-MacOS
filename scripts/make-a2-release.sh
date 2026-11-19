@@ -35,6 +35,7 @@ for file in "$desktop"/*.GofAa "$desktop"/*.SymAa; do
 done
 cp -R "$desktop/data" "$stage/$name/data"
 cp "$repo/README-native-desktop.md" "$stage/$name/README.md"
+cp "$desktop/pet-assist.sh" "$stage/$name/"
 cp "$repo/scripts/verify-a2-release.sh" "$stage/$name/verify.sh"
 cp "$repo/RELEASE-DARWIN-AARCH64.md" "$stage/$name/RELEASE-NOTES.md"
 cp "$repo/license.txt" "$stage/$name/LICENSE-A2.txt"
@@ -50,7 +51,7 @@ untracked_count=$(git -C "$repo" ls-files --others --exclude-standard | wc -l | 
 printf 'A2 source base commit: %s\nA2 tracked source state: %s\nUntracked files excluded from archive: %s\nDrawterm patch base commit: %s\n' \
     "$revision" "$source_state" "$untracked_count" '76847afb4038906bfa135d8f1d2dd956484ba2f4' \
     > "$stage/$name/BUILD-PROVENANCE.txt"
-cp "$compiler/DarwinAosCompilerAa" "$stage/$name/toolchain/"
+cp "$compiler/DarwinAosCompilerAa" "$desktop/OberonLoader" "$stage/$name/toolchain/"
 for file in "$compiler"/*.GofAa "$compiler"/*.SymAa; do
     test -f "$file" || continue
     cp "$file" "$stage/$name/toolchain/"

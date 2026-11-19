@@ -4,19 +4,22 @@ The drawterm desktop includes the Fox AArch64 compiler. BlueShell runs A2
 commands; the classic Oberon window is a separate environment and its classic
 compiler still targets i80386.
 
-The [2026-11-13 readiness preview](https://github.com/Leimy/A2-Drawterm-MacOS/releases/tag/preview-2026-11-13-readiness)
+The [2026-11-19 preview](https://github.com/Leimy/A2-Drawterm-MacOS/releases/tag/preview-2026-11-19)
 includes the desktop, modified drawterm and native compiler toolchain.
 For a first run on another Apple Silicon Mac, copy the ZIP and its adjacent
 `.zip.sha256` file to that Mac. In Terminal, verify and extract them:
 
 ```sh
-archive=A2-Darwin-arm64-preview-2026-11-13-readiness.zip
+archive=A2-Darwin-arm64-preview-2026-11-19.zip
 shasum -a 256 -c "$archive.sha256"
 unzip "$archive"
 cd A2-Darwin-arm64-preview
 sh ./verify.sh --check
 sh ./verify.sh --launch
 ```
+
+For standalone Makefile builds from the matching source checkout, set
+`A2_TOOLCHAIN` to the absolute path of the extracted `toolchain` directory.
 
 The verifier checks every bundled file, compiles and runs an Active Oberon
 example using the bundled toolchain, and confirms the launcher starts.
@@ -41,7 +44,7 @@ cd ~/A2-work
 Newer source builds search the working directory first, then the bundle,
 the bundle's `data` directory, and any inherited `AOSPATH` entries. Thus a
 module compiled in `~/A2-work` overrides the bundled copy. This search-order
-change is newer than the readiness preview archive.
+change is included in the November 19 preview.
 
 Compiling does not replace an already loaded module. Close its application
 windows and stop its activities, then use `System.Free MyModule` in BlueShell
@@ -90,8 +93,7 @@ next launch. Use the same working directory to keep your preference. Font change
 affect the view, without formatting or rewriting the source file. The rest of
 the desktop keeps its existing control sizes.
 
-This change is newer than the `preview-2026-11-13-readiness` archive. Rebuild
-from current source to get it; that existing download is unchanged.
+The November 19 preview includes the PET font controls.
 
 ### PET compiler options
 

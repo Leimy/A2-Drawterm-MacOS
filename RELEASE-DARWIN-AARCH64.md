@@ -156,3 +156,15 @@ The bundle checker writes a source/menu inventory, binary dependency audit,
 per-check logs and a JSON summary. Its menu checks establish that applications
 open and paint; they do not certify every application feature. The test drivers
 use Python, while the distributed launcher, verifier and compiler do not need it.
+
+## November 19 source and desktop preview
+
+The standard desktop and embedded Oberon were built from the tagged sources
+with the existing native Apple Silicon compiler seed. The archive includes
+that bootstrap toolchain and drawterm. The standalone Makefiles in the source
+checkout can use the extracted toolchain, including its loader.
+
+A newly self-built compiler succeeded on individual compilations but trapped
+in System.DoCommands after a large embedded-Oberon link during preparation of
+this preview. The published toolchain uses the established seed. The earlier
+November 13 self-hosting and extended test results above describe that release.

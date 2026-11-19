@@ -30,7 +30,6 @@ test -s "$compiler"
 if [ "$target" = desktop-lightweight ]; then
     # The low-level Unix module is built before KernelLog is available.
     sed -e '1d' \
-        -e '2s/Compiler.Compile /Compiler.Compile --traceModule=Trace /' \
         -e 's/--define=UNIX,AARCH64,DESKTOP /--define=UNIX,AARCH64,DESKTOP,LIGHTWEIGHT /g' \
         -e '2s/ ServiceActivities.Mod / Darwin.ActivityPlatform.Mod Unix.ActivityScheduler.Mod DarwinActivities.Mod ActivityTrees.Mod DarwinServices.Mod DarwinCommandWorkers.Mod Darwin.ServiceActivities.Mod /' \
         -e '3s/ ServiceActivities / ActivityPlatform ActivityScheduler DarwinActivities ActivityTrees DarwinServices DarwinCommandWorkers ServiceActivities /' \
