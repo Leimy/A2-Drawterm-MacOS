@@ -42,3 +42,5 @@ if {[lrange $status 4 5] ne {CHILDKILLED SIGINT}} {error "unexpected child statu
 puts "PASS foreground Ctrl+C terminated the activity tree"
 EXPECT
 fi
+
+"$repo/scripts/test-a2-monitor-wake.sh"

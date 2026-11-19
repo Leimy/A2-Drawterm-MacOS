@@ -123,6 +123,10 @@ TYPE
 	Scheduler* = OBJECT
 	VAR worker: Objects.Process; pool: ADDRESS; inboxLock, changed: ADDRESS; external, monitors, firstPost, lastPost: Activity; head, tail, running: Activity; live-, adopted-: SIZE; bindings, guarded: Monitor; failed-: BOOLEAN;
 
+		#IF MONITORTEST THEN
+		VAR pollVisits-: SIZE; (* Wait records examined in PollExternal by this worker. *)
+		#END
+
 		PROCEDURE &Init*;
 		BEGIN
 			worker := Objects.CurrentProcess(); ASSERT(worker.stackScanner = NIL);
@@ -262,12 +266,18 @@ TYPE
 			Unix.MtxLock(inboxLock);
 			LOOP
 				WHILE firstPost # NIL DO
+					#IF MONITORTEST THEN
+					INC(pollVisits);
+					#END
 					a := firstPost; firstPost := a.postNext; a.postNext := NIL; WakeMonitor(a)
 				END;
 				lastPost := NIL;
 				IF failed THEN WHILE monitors # NIL DO WakeMonitor(monitors) END END;
 				earliest := 0; sample := 0; prev := NIL; a := external;
 				WHILE a # NIL DO
+					#IF MONITORTEST THEN
+					INC(pollVisits);
+					#END
 					next := a.externalNext;
 					IF (a.deadline # 0) & (sample = 0) THEN sample := now() END;
 					IF failed OR ((a.deadline # 0) & (a.deadline <= sample)) OR ((a.socketWatch # 0) & (socketReady(a.socketWatch) # 0)) THEN

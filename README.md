@@ -118,7 +118,10 @@ scripts/test-a2-activity-trees.sh
 ```
 
 It compares all primes through 1,000 with one and four workers, then checks
-that a trapped body unwinds a parked sibling after garbage collection. The Linux
+that a trapped body unwinds a parked sibling after garbage collection. It also
+forces a notification to arrive before its waiter parks and checks the cost
+of repeated wakeups. The [monitor wakeup model](tests/model/README.md) explores
+interleavings and shows the counterexample when early delivery is disabled. The Linux
 backend was exercised under QEMU on Debian 12 x86-64. Other A2 targets still
 need a worker and stack-scanning backend to provide this API.
 

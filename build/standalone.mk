@@ -46,7 +46,7 @@ ifneq ($(runtime_object),)
 $(runtime_object): $(addprefix $(repo)/source/,$(runtime_sources)) $(rules) $(platform_rules) Makefile
 	@mkdir -p "$(out)"
 	@cd "$(out)" && rm -f ActivityTrees.$(ext) && \
-	    "$(loader)" compile -p=$(platform) --traceModule=Trace --define=UNIX,$(arch),DESKTOP,LIGHTWEIGHT $(runtime_sources) && test -s ActivityTrees.$(ext)
+	    "$(loader)" compile -p=$(platform) --traceModule=Trace --define=UNIX,$(arch),DESKTOP,LIGHTWEIGHT$(A2_EXTRA_DEFINE:%=,%) $(runtime_sources) && test -s ActivityTrees.$(ext)
 endif
 
 run: $(PROGRAM)
